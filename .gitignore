@@ -1,0 +1,5 @@
+build/*
+.cache/*
+database/*
+vcpkg_installed/*
+vcpkg-manifest-install.log
