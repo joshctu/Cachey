@@ -1,5 +1,5 @@
 #pragma once
-#include "store.hpp"
+#include "store_controller.hpp"
 #include <QLabel>
 #include <QLineEdit>
 #include <QMainWindow>
@@ -9,17 +9,21 @@ class MainWindow : public QMainWindow {
   Q_OBJECT
 
 public:
-  explicit MainWindow(KV_Store &store, QWidget *parent = nullptr);
+  explicit MainWindow(StoreController &storeController,
+                      QWidget *parent = nullptr);
   ~MainWindow() = default;
 
 private:
+  StoreController storeController;
   QLineEdit *set_key_input;
   QLineEdit *set_value_input;
   QPushButton *set_submit_button;
   QLineEdit *get_key_input;
   QPushButton *get_submit_button;
   QLabel *get_result;
-  KV_Store store;
+  QLabel *set_result;
   void onSetSubmitKey();
   void onGetSubmitKey();
+  void setupUi();
+  void setupConnections();
 };

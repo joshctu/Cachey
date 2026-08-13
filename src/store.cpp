@@ -151,9 +151,6 @@ void KV_Store::generate_log_segment() {
  */
 void KV_Store::set(std::string &key, std::string &value) {
 
-  if (key.size() > UINT32_MAX)
-    throw WriteException("Key is too large");
-
   LogEntryHeader header(value.size(), key.size(), 0x20);
   header.checksum = hash_table.generate_checksum(key, value, 0x20);
 

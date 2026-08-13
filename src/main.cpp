@@ -17,7 +17,8 @@ int main(int argc, char *argv[]) {
   std::filesystem::create_directories("./database/wal/logs");
 
   KV_Store store;
-  MainWindow mainWindow(store);
+  StoreController storeController(store);
+  MainWindow mainWindow(storeController);
 
   mainWindow.show();
 
