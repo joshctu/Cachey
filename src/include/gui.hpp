@@ -22,6 +22,8 @@ private:
   QPushButton *get_submit_button;
   QLabel *get_result;
   QLabel *set_result;
+  QLabel *set_timer_results;
+  QLabel *get_timer_results;
   void onSetSubmitKey();
   void onGetSubmitKey();
   void setupUi();

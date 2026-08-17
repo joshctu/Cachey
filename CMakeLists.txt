@@ -10,7 +10,6 @@ set(CMAKE_AUTORCC ON)
 
 set(xxHash_DIR "/home/lean/cpp/kv_store/vcpkg_installed/x64-linux/share/xxhash")
 find_package(xxHash CONFIG REQUIRED)
-
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
 find_package(Qt6 REQUIRED COMPONENTS Core)
 qt_standard_project_setup()

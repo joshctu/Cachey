@@ -6,11 +6,13 @@
 struct SetResult {
   bool success;
   std::string error;
+  long long time_elapsed;
 };
 
 struct GetResult {
   bool success;
   std::string error;
+  long long time_elapsed;
   std::string value;
 };
 
