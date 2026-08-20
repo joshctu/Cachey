@@ -6,13 +6,21 @@
 struct SetResult {
   bool success;
   std::string error;
-  long long time_elapsed;
+  double time_elapsed;
+};
+
+struct BulkSetResult {
+  bool success;
+  std::string error;
+  long writes_requested;
+  long writes_completed;
+  double avg_time_per_write;
 };
 
 struct GetResult {
   bool success;
   std::string error;
-  long long time_elapsed;
+  double time_elapsed;
   std::string value;
 };
 
@@ -25,4 +33,5 @@ public:
 
   SetResult handleSetKeyValue(std::string &key, std::string &value);
   GetResult handleGetValue(std::string &key);
+  BulkSetResult handleSeedEntries(int number_of_entries);
 };

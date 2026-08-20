@@ -23,7 +23,7 @@ SetResult StoreController::handleSetKeyValue(std::string &key,
   timer.start();
   store.set(key, value);
 
-  long long time = timer.nsecsElapsed();
+  double time = timer.nsecsElapsed() * 0.000001;
   return {true, "", time};
 }
 
@@ -40,7 +40,7 @@ GetResult StoreController::handleGetValue(std::string &key) {
     timer.start();
     auto result = store.get(key);
     if (result) {
-      long long time = timer.nsecsElapsed();
+      double time = timer.nsecsElapsed() * 0.000001;
       std::string value = *result;
       return {true, "", time, value};
     }
@@ -49,4 +49,23 @@ GetResult StoreController::handleGetValue(std::string &key) {
     return {false, e.what()};
   }
   return {false, "Key not found"};
+}
+
+BulkSetResult StoreController::handleSeedEntries(int number_of_entries) {
+  QElapsedTimer timer;
+  long writes_completed = 0;
+  double avg_time_accumulator = 0;
+
+  for (int i = 0; i < number_of_entries; ++i) {
+    std::string key = "key" + std::to_string(i);
+    std::string value = "value" + std::to_string(i);
+
+    timer.restart();
+    store.set(key, value);
+    writes_completed += 1;
+    avg_time_accumulator += timer.nsecsElapsed();
+  }
+
+  return {true, "", number_of_entries, writes_completed,
+          (avg_time_accumulator / writes_completed) * 0.000001};
 }

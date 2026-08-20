@@ -24,8 +24,10 @@ private:
   QLabel *set_result;
   QLabel *set_timer_results;
   QLabel *get_timer_results;
+  QPushButton *seed_entries_button;
   void onSetSubmitKey();
   void onGetSubmitKey();
+  void onSeedEntries();
   void setupUi();
   void setupConnections();
 };

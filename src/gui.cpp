@@ -8,6 +8,7 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 #include <QWidget>
+#include <qboxlayout.h>
 #include <string>
 
 MainWindow::MainWindow(StoreController &storeController, QWidget *parent)
@@ -32,7 +33,9 @@ void MainWindow::onSetSubmitKey() {
   } else {
     set_result->setText("Success");
     set_timer_results->setText(
-        QString::fromStdString(std::to_string(result.time_elapsed)));
+        QString::fromStdString("Operation completed in " +
+                               std::to_string(result.time_elapsed)) +
+        "ms");
   }
 
   set_key_input->clear();
@@ -46,12 +49,18 @@ void MainWindow::onGetSubmitKey() {
   if (result.success) {
     get_result->setText(QString::fromStdString(result.value));
     get_timer_results->setText(
-        QString::fromStdString(std::to_string(result.time_elapsed)));
+        QString::fromStdString("Operation completed in " +
+                               std::to_string(result.time_elapsed)) +
+        "ms");
   } else {
     get_result->setText(QString::fromStdString(result.error));
   }
 
   get_key_input->clear();
+}
+
+void MainWindow::onSeedEntries() {
+  BulkSetResult result = storeController.handleSeedEntries(1000);
 }
 
 void MainWindow::setupUi() {
@@ -61,19 +70,24 @@ void MainWindow::setupUi() {
 
   /* Left side widgets (set new key/value) */
   QWidget *set_widget_left = new QWidget(central);
+  QWidget *action_buttons_left = new QWidget(set_widget_left);
   set_key_input = new QLineEdit(set_widget_left);
   set_value_input = new QLineEdit(set_widget_left);
-  set_submit_button = new QPushButton("Submit", set_widget_left);
+  set_submit_button = new QPushButton("Submit", action_buttons_left);
   set_result = new QLabel(set_widget_left);
   set_timer_results = new QLabel(set_widget_left);
+  seed_entries_button = new QPushButton("Seed entries", action_buttons_left);
 
   /* Left side layout */
   QVBoxLayout *left_layout = new QVBoxLayout(set_widget_left);
+  QHBoxLayout *action_buttons_layout = new QHBoxLayout(action_buttons_left);
   left_layout->addWidget(set_key_input);
   left_layout->addWidget(set_value_input);
-  left_layout->addWidget(set_submit_button);
   left_layout->addWidget(set_result);
   left_layout->addWidget(set_timer_results);
+  left_layout->addWidget(action_buttons_left);
+  action_buttons_layout->addWidget(set_submit_button);
+  action_buttons_layout->addWidget(seed_entries_button);
 
   /* Right side widgets (get value from key) */
   QWidget *get_widget_right = new QWidget(central);
@@ -102,4 +116,7 @@ void MainWindow::setupConnections() {
 
   connect(get_submit_button, &QPushButton::clicked, this,
           &MainWindow::onGetSubmitKey);
+
+  connect(seed_entries_button, &QPushButton::clicked, this,
+          &MainWindow::onSeedEntries);
 }
