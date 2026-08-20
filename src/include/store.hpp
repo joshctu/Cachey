@@ -22,4 +22,5 @@ private:
 public:
   void set(std::string &key, std::string &value);
   std::optional<std::string> get(std::string &key);
+  bool remove(std::string &key);
 };

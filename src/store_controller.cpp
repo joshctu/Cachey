@@ -51,6 +51,28 @@ GetResult StoreController::handleGetValue(std::string &key) {
   return {false, "Key not found"};
 }
 
+DeleteResult StoreController::handleDeleteKey(std::string &key) {
+  if (key.size() == 0)
+    return {false, "A key must be provided"};
+
+  if (key.size() > UINT32_MAX)
+    return {false, "Key is too large"};
+
+  try {
+    QElapsedTimer timer;
+    timer.start();
+    auto result = store.remove(key);
+    if (result) {
+      double time = timer.nsecsElapsed() * 0.000001;
+      return {true, "", time};
+    }
+  } catch (ReadException &e) {
+    return {false, e.what()};
+  }
+
+  return {false, "Key not found"};
+}
+
 BulkSetResult StoreController::handleSeedEntries(int number_of_entries) {
   QElapsedTimer timer;
   long writes_completed = 0;

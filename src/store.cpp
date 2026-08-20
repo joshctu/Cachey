@@ -84,6 +84,15 @@ void Hash_Table::create_index(const std::string &key, const uint64_t offset) {
 };
 
 /**
+ * @brief Update an entry in the index map to point to a new entry
+ *
+ * @param hash The hash for the existing entry to be modified
+ */
+void Hash_Table::update_index(const uint64_t hash, const uint64_t offset) {
+  lookup_table[hash] = offset;
+}
+
+/**
  * @brief Checks for and returns the byte offset | log # for a given key;
  *
  * @param key The key to index from
@@ -233,9 +242,55 @@ std::optional<std::string> KV_Store::get(std::string &key) {
   std::string value;
   value.resize(value_size);
   file.read(value.data(), value_size);
+  file.close();
 
-  if (not hash_table.verify_checksum(stored_checksum, key, value, 0x20))
-    throw ReadException("Record checksum invalid for key: " + key);
+  if (hash_table.verify_checksum(stored_checksum, key, value, 0x20))
+    return value;
+  else if (hash_table.verify_checksum(stored_checksum, key, value, 0x30))
+    return "Key not found";
 
-  return value;
+  throw ReadException("Record checksum invalid for key: " + key);
 };
+
+bool KV_Store::remove(std::string &key) {
+  uint64_t hash = hash_table.generate_hash(key);
+
+  std::optional<uint64_t> offset = hash_table.lookup_hash(key);
+  if (not offset) {
+    return false;
+  }
+
+  LogEntryHeader header(0, key.size(), 0x30);
+  header.checksum = hash_table.generate_checksum(key, "", 0x30);
+
+  uint64_t record_size = sizeof(LogEntryHeader) + key.size() + 0;
+
+  if (logs.empty() || record_size + logs.back().size > MAX_SEGMENT_SIZE)
+    generate_log_segment();
+
+  LogSegment &cur_log = logs.back();
+
+  std::fstream file(cur_log.file_path,
+                    std::ios::in | std::ios::out | std::ios::binary);
+
+  // Encode file and byte offset in index
+  uint64_t encode_offset =
+      static_cast<uint64_t>(cur_log.size) << 32 |
+      static_cast<uint32_t>(std::stoi(cur_log.file_path.stem()));
+
+  file.seekp(cur_log.size);
+  file.write(reinterpret_cast<char *>(&header.checksum),
+             sizeof(header.checksum));
+  file.write(reinterpret_cast<char *>(&header.value_size),
+             sizeof(header.value_size));
+  file.write(reinterpret_cast<char *>(&header.key_size),
+             sizeof(header.key_size));
+  file.write(reinterpret_cast<char *>(&header.operation),
+             sizeof(header.operation));
+  file.write(key.data(), key.size());
+  cur_log.size += sizeof(header) + key.size() + 0;
+
+  hash_table.update_index(hash, encode_offset);
+
+  return true;
+}

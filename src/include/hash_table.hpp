@@ -21,5 +21,6 @@ public:
                        const std::string &value, const uint8_t operation);
 
   void create_index(const std::string &key, const uint64_t offset);
+  void update_index(const uint64_t hash, const uint64_t offset);
   std::optional<uint64_t> lookup_hash(const std::string &key);
 };

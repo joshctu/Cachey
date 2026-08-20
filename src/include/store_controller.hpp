@@ -24,6 +24,12 @@ struct GetResult {
   std::string value;
 };
 
+struct DeleteResult {
+  bool success;
+  std::string error;
+  double time_elapsed;
+};
+
 class StoreController {
 private:
   KV_Store store;
@@ -33,5 +39,7 @@ public:
 
   SetResult handleSetKeyValue(std::string &key, std::string &value);
   GetResult handleGetValue(std::string &key);
+  DeleteResult handleDeleteKey(std::string &key);
+
   BulkSetResult handleSeedEntries(int number_of_entries);
 };

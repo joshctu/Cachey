@@ -1,6 +1,7 @@
 #include "gui.hpp"
 #include "store_controller.hpp"
 #include <QApplication>
+#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -8,6 +9,7 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 #include <QWidget>
+#include <iostream>
 #include <qboxlayout.h>
 #include <string>
 
@@ -21,7 +23,7 @@ MainWindow::MainWindow(StoreController &storeController, QWidget *parent)
   setupConnections();
 }
 
-void MainWindow::onSetSubmitKey() {
+void MainWindow::onSetKey() {
   std::string user_input_key = set_key_input->text().toStdString();
   std::string user_input_value = set_value_input->text().toStdString();
 
@@ -36,13 +38,16 @@ void MainWindow::onSetSubmitKey() {
         QString::fromStdString("Operation completed in " +
                                std::to_string(result.time_elapsed)) +
         "ms");
+    long curr_writes = std::stoi(total_writes->text().toStdString());
+    total_writes->setText(
+        QString::fromStdString(std::to_string(++curr_writes)));
   }
 
   set_key_input->clear();
   set_value_input->clear();
 }
 
-void MainWindow::onGetSubmitKey() {
+void MainWindow::onGetKey() {
   std::string user_input_key = get_key_input->text().toStdString();
 
   GetResult result = storeController.handleGetValue(user_input_key);
@@ -59,8 +64,26 @@ void MainWindow::onGetSubmitKey() {
   get_key_input->clear();
 }
 
+void MainWindow::onDeleteKey() {
+  std::string user_input_key = set_key_input->text().toStdString();
+
+  DeleteResult result = storeController.handleDeleteKey(user_input_key);
+  if (result.success) {
+    set_result->setText("Deleted successfully");
+    get_timer_results->setText(QString::fromStdString(
+        "Operation completed in " + std::to_string(result.time_elapsed)));
+  } else {
+    set_result->setText("Deletion failed");
+    std::cout << result.error << std::endl;
+  }
+  set_key_input->clear();
+}
+
 void MainWindow::onSeedEntries() {
   BulkSetResult result = storeController.handleSeedEntries(1000);
+  long curr_writes = std::stoi(total_writes->text().toStdString());
+  total_writes->setText(QString::fromStdString(
+      std::to_string(curr_writes + result.writes_completed)));
 }
 
 void MainWindow::setupUi() {
@@ -69,25 +92,54 @@ void MainWindow::setupUi() {
   setCentralWidget(central);
 
   /* Left side widgets (set new key/value) */
-  QWidget *set_widget_left = new QWidget(central);
-  QWidget *action_buttons_left = new QWidget(set_widget_left);
-  set_key_input = new QLineEdit(set_widget_left);
-  set_value_input = new QLineEdit(set_widget_left);
-  set_submit_button = new QPushButton("Submit", action_buttons_left);
-  set_result = new QLabel(set_widget_left);
-  set_timer_results = new QLabel(set_widget_left);
-  seed_entries_button = new QPushButton("Seed entries", action_buttons_left);
+  QWidget *left_parent = new QWidget(central);
+  QGroupBox *stats_box = new QGroupBox("Operation statistics", left_parent);
+  set_key_input = new QLineEdit(left_parent);
+  set_value_input = new QLineEdit(left_parent);
+  set_submit_button = new QPushButton("Set new key/value", left_parent);
+  delete_submit_button = new QPushButton("Delete key", left_parent);
+  seed_entries_button = new QPushButton("Seed entries", left_parent);
+
+  QLabel *set_result_title = new QLabel("Result of last operation", stats_box);
+  set_result = new QLabel("N/A", stats_box);
+
+  QLabel *total_writes_title = new QLabel("Total completed writes", stats_box);
+  total_writes = new QLabel("0", stats_box);
+
+  set_timer_results = new QLabel(stats_box);
 
   /* Left side layout */
-  QVBoxLayout *left_layout = new QVBoxLayout(set_widget_left);
-  QHBoxLayout *action_buttons_layout = new QHBoxLayout(action_buttons_left);
-  left_layout->addWidget(set_key_input);
-  left_layout->addWidget(set_value_input);
-  left_layout->addWidget(set_result);
-  left_layout->addWidget(set_timer_results);
-  left_layout->addWidget(action_buttons_left);
-  action_buttons_layout->addWidget(set_submit_button);
+  QHBoxLayout *left_parent_layout = new QHBoxLayout(left_parent);
+  QVBoxLayout *left_operation_layout = new QVBoxLayout();
+  QHBoxLayout *left_operation_buttons = new QHBoxLayout();
+  QHBoxLayout *action_buttons_layout = new QHBoxLayout();
+  QVBoxLayout *left_statistic_layout = new QVBoxLayout(stats_box);
+  QHBoxLayout *left_result_layout = new QHBoxLayout();
+  QVBoxLayout *total_writes_layout = new QVBoxLayout();
+
+  left_parent_layout->addLayout(left_operation_layout);
+  left_parent_layout->addWidget(stats_box);
+
+  left_operation_buttons->addWidget(set_submit_button);
+  left_operation_buttons->addWidget(delete_submit_button);
+
+  left_operation_layout->addWidget(set_key_input);
+  left_operation_layout->addWidget(set_value_input);
+  action_buttons_layout->addLayout(left_operation_buttons);
   action_buttons_layout->addWidget(seed_entries_button);
+  left_operation_layout->addLayout(action_buttons_layout);
+
+  left_result_layout->addWidget(set_result_title);
+  left_result_layout->addWidget(set_result);
+
+  total_writes_layout->addWidget(total_writes_title);
+  total_writes_layout->addWidget(total_writes);
+  total_writes_layout->setSpacing(6);
+
+  left_statistic_layout->setSpacing(12);
+  left_statistic_layout->addLayout(left_result_layout);
+  left_statistic_layout->addWidget(set_timer_results);
+  left_statistic_layout->addLayout(total_writes_layout);
 
   /* Right side widgets (get value from key) */
   QWidget *get_widget_right = new QWidget(central);
@@ -105,18 +157,21 @@ void MainWindow::setupUi() {
 
   /* Main layout */
   QHBoxLayout *main_layout = new QHBoxLayout(central);
-  main_layout->addWidget(set_widget_left);
+  main_layout->addWidget(left_parent);
   main_layout->addWidget(get_widget_right);
 }
 
 void MainWindow::setupConnections() {
 
   connect(set_submit_button, &QPushButton::clicked, this,
-          &MainWindow::onSetSubmitKey);
+          &MainWindow::onSetKey);
 
   connect(get_submit_button, &QPushButton::clicked, this,
-          &MainWindow::onGetSubmitKey);
+          &MainWindow::onGetKey);
 
   connect(seed_entries_button, &QPushButton::clicked, this,
           &MainWindow::onSeedEntries);
+
+  connect(delete_submit_button, &QPushButton::clicked, this,
+          &MainWindow::onDeleteKey);
 }
