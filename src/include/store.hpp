@@ -4,20 +4,20 @@
 #include <string>
 #include <vector>
 
-#include "hash_table.hpp"
-#include "log_file.hpp"
+#include "hash.hpp"
+#include "segment.hpp"
 
 class KV_Store {
 
 private:
-  std::vector<LogSegment> logs;
+  std::vector<Segment> segments;
   Hash_Table hash_table;
 
 public:
   KV_Store();
 
 private:
-  void generate_log_segment();
+  void generateSegment();
 
 public:
   void set(std::string &key, std::string &value);

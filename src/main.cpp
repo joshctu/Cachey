@@ -18,7 +18,7 @@ int main(int argc, char *argv[]) {
 
   QApplication app(argc, argv);
   // Init log dir if not exists
-  std::filesystem::create_directories("./database/wal/logs");
+  std::filesystem::create_directories("./database/wal/segments");
 
   KV_Store store;
   StoreController storeController(store);
