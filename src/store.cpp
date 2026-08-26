@@ -18,27 +18,45 @@
  *
  */
 KV_Store::KV_Store() {
+  std::vector<std::filesystem::path> log_files;
   for (const auto &entry :
        std::filesystem::directory_iterator("./database/wal/segments/")) {
-    if (entry.path().extension() == ".log") {
-      std::filesystem::path file_path = entry.path();
-      uint32_t size = (uint32_t)std::filesystem::file_size(entry.path());
-      unsigned long id = std::stoul(entry.path().filename(), nullptr, 10);
-
-      Segment segment(id, size, file_path, hash_table.HASH_SEED);
-
-      segments.push_back(segment);
-    }
+    if (entry.path().extension() == ".log")
+      log_files.push_back(entry.path());
   }
 
-  std::sort(segments.begin(), segments.end(),
-            [](Segment a, Segment b) { return a.id < b.id; });
+  if (log_files.empty()) {
+    generateNewActiveSegment();
+    return;
+  }
+
+  std::sort(log_files.begin(), log_files.end(),
+            [](std::filesystem::path const &a, std::filesystem::path const &b) {
+              return std::stoi(a.stem().string()) <
+                     std::stoi(b.stem().string());
+            });
+
+  for (const auto &file : log_files) {
+    uint32_t segment_id = std::stoi(file.stem().string());
+    segments.emplace_back(segment_id, MAX_SEGMENT_SIZE, file,
+                          hash_table.HASH_SEED);
+    Segment &segment = segments.back();
+    segment.replay([this](const std::string &key, uint32_t segment_id,
+                          uint32_t file_offset) {
+      encodeIndexAndSet(key, segment_id, file_offset);
+    });
+
+    segment_map[segment_id] = segments.size() - 1;
+
+    if (!segment.isSealed)
+      active_idx = segments.size() - 1;
+  }
 }
 
 /**
  * @brief generate a new log segment in sequential order
  */
-void KV_Store::generateSegment() {
+void KV_Store::generateNewActiveSegment() {
   unsigned long segment_id = segments.size() + 1;
 
   std::stringstream file;
@@ -48,9 +66,16 @@ void KV_Store::generateSegment() {
   std::filesystem::path p =
       std::filesystem::path("./database/wal/segments") / file.str();
 
-  Segment segment(segment_id, MAX_SEGMENT_SIZE, p, hash_table.HASH_SEED);
+  segments.emplace_back(segment_id, MAX_SEGMENT_SIZE, p, hash_table.HASH_SEED);
+  segment_map[segment_id] = segments.size() - 1;
+  active_idx = segments.size() - 1;
+}
 
-  segments.push_back(segment);
+void KV_Store::encodeIndexAndSet(const std::string &key,
+                                 const uint32_t segment_id,
+                                 const uint32_t file_offset) {
+  uint64_t entry_loc = ((uint64_t)segment_id << 32) | file_offset;
+  hash_table.createIndex(key, entry_loc);
 }
 
 /**
@@ -61,19 +86,22 @@ void KV_Store::generateSegment() {
  */
 void KV_Store::set(std::string &key, std::string &value) {
 
-  uint64_t record_size = sizeof(SegmentEntryHeader) + key.size() + value.size();
+  uint64_t record_size = SERIALIZED_HEADER_SIZE + key.size() + value.size();
 
-  if (segments.empty() || !segments.back().canAppend(record_size))
-    generateSegment();
+  if (!segments[active_idx].canAppend(record_size)) {
+    segments[active_idx].seal();
+    generateNewActiveSegment();
+  }
 
-  Segment &latest_segment = segments.back();
-  uint32_t curr_file_ptr = latest_segment.used;
-  latest_segment.append(key, value);
+  Segment &active_segment = segments[active_idx];
+
+  uint32_t curr_file_ptr = active_segment.used;
+  active_segment.append(key, value);
 
   // Encode file and byte offset in index
-  uint64_t encode_offset =
-      static_cast<uint64_t>(curr_file_ptr) << 32 |
-      static_cast<uint32_t>(std::stoi(latest_segment.file_path.stem()));
+  uint64_t encode_offset = static_cast<uint64_t>(curr_file_ptr) << 32 |
+                           static_cast<uint32_t>(std::stoi(
+                               active_segment.file_path.stem().string()));
 
   hash_table.createIndex(key, encode_offset);
 }
@@ -99,14 +127,21 @@ std::optional<std::string> KV_Store::get(std::string &key) {
   uint32_t file_offset = static_cast<uint32_t>(valid_location >> 32);
   uint32_t segment_id = static_cast<uint32_t>(valid_location);
 
-  Segment &segment = segments[segment_id - 1];
-  auto result = segment.read(key, file_offset);
+  auto it = segment_map.find(segment_id);
+  if (it != segment_map.end()) {
+    uint32_t idx = it->second;
+    if (idx < segments.size()) {
+      Segment found_segment = segments[idx];
+      auto result = found_segment.read(key, file_offset);
 
-  if (not result)
-    return std::nullopt;
+      if (not result)
+        return std::nullopt;
 
-  std::string valid_result = *result;
-  return valid_result;
+      std::string valid_result = *result;
+      return valid_result;
+    }
+  }
+  return std::nullopt;
 };
 
 bool KV_Store::remove(std::string &key) {
@@ -119,20 +154,23 @@ bool KV_Store::remove(std::string &key) {
 
   SegmentEntryHeader header(0, key.size(), 0x30);
 
-  uint64_t record_size = sizeof(SegmentEntryHeader) + key.size() + 0;
+  uint64_t record_size = SERIALIZED_HEADER_SIZE + key.size() + 0;
+  Segment &active_segment = segments[active_idx];
 
-  if (segments.empty() || !segments.back().canAppend(record_size))
-    generateSegment();
+  if (!active_segment.canAppend(record_size)) {
+    active_segment.seal();
+    generateNewActiveSegment();
+    active_segment = segments[active_idx];
+  }
 
-  Segment &latest_segment = segments.back();
-  uint32_t curr_file_ptr = latest_segment.used;
+  uint32_t curr_file_ptr = active_segment.used;
 
-  latest_segment.remove(key);
+  active_segment.remove(key);
 
   // Encode file and byte offset in index
   uint64_t encode_offset =
       static_cast<uint64_t>(curr_file_ptr) << 32 |
-      static_cast<uint32_t>(std::stoi(latest_segment.file_path.stem()));
+      static_cast<uint32_t>(std::stoi(active_segment.file_path.stem()));
 
   hash_table.updateIndex(hash, encode_offset);
 

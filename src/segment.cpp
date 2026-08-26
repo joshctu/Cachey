@@ -7,12 +7,84 @@
 #include <string>
 #include <xxhash.h>
 
+/**
+ * @brief Manage each database segment. Constructor should init new segment file
+ * if none found. Otherwise it should init all it's fields using existing log
+ * data.
+ *
+ * @param id The segment_id for this segment.
+ * @param size The total size of this segment in bytes.
+ * @param file_path Path to the log file this segment manages from project root
+ * @param HASH_SEED The hash seed this segment should use to generate checksums.
+ */
 Segment::Segment(uint32_t id, uint32_t size, std::filesystem::path file_path,
                  uint8_t HASH_SEED)
     : id(id), size(size), file_path(file_path), HASH_SEED(HASH_SEED) {
-  std::ofstream SegmentFile(file_path);
-  SegmentFile.close();
+  std::ofstream segmentFile(file_path);
+  segmentFile.close();
 }
+
+void Segment::replay(const RecordHandler &on_record) {
+  std::ifstream segmentFile(file_path, std::ios::binary);
+
+  if (!segmentFile) {
+    segmentFile.close();
+    return;
+  }
+
+  std::streamoff file_limit =
+      static_cast<std::streamoff>(MAX_SEGMENT_SIZE) -
+      static_cast<std::streamoff>(SERIALIZED_FOOTER_SIZE);
+
+  std::streamoff offset = 0;
+
+  while (offset < file_limit) {
+
+    uint64_t stored_checksum;
+    uint32_t key_size;
+    uint32_t value_size;
+    uint8_t operation;
+    segmentFile.read(reinterpret_cast<char *>(&stored_checksum),
+                     sizeof(stored_checksum));
+    segmentFile.read(reinterpret_cast<char *>(&key_size), sizeof(key_size));
+    segmentFile.read(reinterpret_cast<char *>(&value_size), sizeof(value_size));
+    segmentFile.read(reinterpret_cast<char *>(&operation), sizeof(operation));
+
+    if (segmentFile.gcount() == 0)
+      break;
+
+    if (segmentFile.gcount() != SERIALIZED_HEADER_SIZE) {
+      throw ReadException("Incomplete record header");
+    }
+
+    std::string key;
+    std::string value;
+
+    key.resize(key_size);
+    value.resize(value_size);
+
+    segmentFile.read(key.data(), key.size());
+    segmentFile.read(value.data(), value.size());
+
+    if (!verifyChecksum(stored_checksum, key, value, operation)) {
+      std::cout << "Checksum error" << std::endl;
+      throw ReadException("Data corrupted");
+    }
+
+    on_record(key, id, offset);
+
+    offset += static_cast<std::streamoff>(key.size()) +
+              static_cast<std::streamoff>(value.size()) +
+              static_cast<std::streamoff>(SERIALIZED_HEADER_SIZE);
+  }
+
+  segmentFile.seekg(file_limit, std::ios::beg);
+  uint32_t magic;
+  segmentFile.read(reinterpret_cast<char *>(&magic), sizeof(magic));
+  if (magic == MAGIC)
+    isSealed = true;
+}
+
 /**
  * @brief Generate a checksum for a db entry
  * @param key The key being used
@@ -71,7 +143,7 @@ bool Segment::verifyChecksum(const uint64_t &stored_checksum,
  * @return True is the record can be added, false otherwise
  */
 bool Segment::canAppend(uint32_t const entry_size) {
-  return isActive && entry_size <= size - used;
+  return !isSealed && entry_size <= size - used - SERIALIZED_FOOTER_SIZE;
 }
 
 /**
@@ -82,27 +154,25 @@ bool Segment::canAppend(uint32_t const entry_size) {
  */
 void Segment::append(std::string &key, std::string &value) {
 
-  SegmentEntryHeader header(value.size(), key.size(), 0x20);
+  SegmentEntryHeader header(key.size(), value.size(), 0x20);
   header.checksum = generateChecksum(key, value, 0x20);
-  uint64_t record_size = sizeof(SegmentEntryHeader) + key.size() + value.size();
-
   std::fstream file(file_path, std::ios::in | std::ios::out | std::ios::binary);
 
   file.seekp(used);
   file.write(reinterpret_cast<char *>(&header.checksum),
              sizeof(header.checksum));
-  file.write(reinterpret_cast<char *>(&header.value_size),
-             sizeof(header.value_size));
   file.write(reinterpret_cast<char *>(&header.key_size),
              sizeof(header.key_size));
+  file.write(reinterpret_cast<char *>(&header.value_size),
+             sizeof(header.value_size));
   file.write(reinterpret_cast<char *>(&header.operation),
              sizeof(header.operation));
   file.write(key.data(), key.size());
   file.write(value.data(), value.size());
 
   file.close();
-
-  used += sizeof(header) + key.size() + value.size();
+  used += SERIALIZED_HEADER_SIZE + key.size() + value.size();
+  entry_count += 1;
 }
 
 /**
@@ -115,10 +185,9 @@ void Segment::append(std::string &key, std::string &value) {
  */
 std::optional<std::string> Segment::read(std::string &key,
                                          uint32_t const offset) {
-  std::fstream file(file_path, std::ios::binary | std::ios::in | std::ios::out);
+  std::fstream file(file_path, std::ios::in | std::ios::out | std::ios::binary);
 
   file.seekg(offset);
-  std::cout << offset << std::endl;
 
   // Read back the stored checksum
   uint64_t stored_checksum;
@@ -126,18 +195,17 @@ std::optional<std::string> Segment::read(std::string &key,
 
   file.read(reinterpret_cast<char *>(&stored_checksum),
             sizeof(stored_checksum));
+  file.seekg(sizeof(uint32_t), std::ios::cur);
   file.read(reinterpret_cast<char *>(&value_size), sizeof(value_size));
 
   // Skip to value
-  file.seekg(sizeof(uint32_t) + sizeof(uint8_t) + key.size(), std::ios::cur);
+  file.seekg(sizeof(uint8_t) + key.size(), std::ios::cur);
 
   std::string value;
   value.resize(value_size);
   file.read(value.data(), value_size);
 
   file.close();
-
-  std::cout << value << std::endl;
 
   if (verifyChecksum(stored_checksum, key, value, 0x20))
     return value;
@@ -156,24 +224,41 @@ std::optional<std::string> Segment::read(std::string &key,
  */
 void Segment::remove(std::string &key) {
 
-  SegmentEntryHeader header(0, key.size(), 0x30);
+  SegmentEntryHeader header(key.size(), 0, 0x30);
   header.checksum = generateChecksum(key, "", 0x30);
 
   std::fstream file(file_path, std::ios::in | std::ios::out | std::ios::binary);
 
-  // Encode file and byte offset in index
-  uint64_t encode_offset = static_cast<uint64_t>(size) << 32 |
-                           static_cast<uint32_t>(std::stoi(file_path.stem()));
-
   file.seekp(used);
-  file.write(reinterpret_cast<char *>(&header.checksum),
+  file.write(reinterpret_cast<const char *>(&header.checksum),
              sizeof(header.checksum));
-  file.write(reinterpret_cast<char *>(&header.value_size),
-             sizeof(header.value_size));
-  file.write(reinterpret_cast<char *>(&header.key_size),
+  file.write(reinterpret_cast<const char *>(&header.key_size),
              sizeof(header.key_size));
-  file.write(reinterpret_cast<char *>(&header.operation),
+  file.write(reinterpret_cast<const char *>(&header.value_size),
+             sizeof(header.value_size));
+  file.write(reinterpret_cast<const char *>(&header.operation),
              sizeof(header.operation));
   file.write(key.data(), key.size());
-  used += sizeof(header) + key.size() + 0;
+  used += SERIALIZED_HEADER_SIZE + key.size() + 0;
+
+  file.close();
+  entry_count += 1;
+}
+
+void Segment::seal() {
+  std::fstream file(file_path, std::ios::in | std::ios::out | std::ios::binary);
+
+  std::cout << "file: " << file_path.stem() << "sealed with " << used
+            << " bytes remaining" << std::endl;
+  std::streamoff offset = static_cast<std::streamoff>(MAX_SEGMENT_SIZE) -
+                          static_cast<std::streamoff>(SERIALIZED_FOOTER_SIZE);
+  file.seekp(offset);
+  file.write(reinterpret_cast<const char *>(&MAGIC), sizeof(MAGIC));
+  file.write(reinterpret_cast<char *>(&used), sizeof(used));
+  file.write(reinterpret_cast<const char *>(&entry_count), sizeof(entry_count));
+
+  used += offset + SERIALIZED_FOOTER_SIZE;
+
+  isSealed = true;
+  file.close();
 }
