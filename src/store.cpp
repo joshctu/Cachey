@@ -1,4 +1,5 @@
 #include "store.hpp"
+#include "exceptions.hpp"
 #include "hash.hpp"
 #include "segment.hpp"
 #include "xxhash.h"
@@ -41,10 +42,14 @@ KV_Store::KV_Store() {
     segments.emplace_back(segment_id, MAX_SEGMENT_SIZE, file,
                           hash_table.HASH_SEED);
     Segment &segment = segments.back();
-    segment.replay([this](const std::string &key, uint32_t segment_id,
-                          uint32_t file_offset) {
-      encodeIndexAndSet(key, segment_id, file_offset);
-    });
+    try {
+      segment.replay([this](const std::string &key, uint32_t segment_id,
+                            uint32_t file_offset) {
+        encodeIndexAndSet(key, segment_id, file_offset);
+      });
+    } catch (ReadException &e) {
+      std::cout << e.what() << std::endl;
+    }
 
     segment_map[segment_id] = segments.size() - 1;
 
@@ -74,7 +79,7 @@ void KV_Store::generateNewActiveSegment() {
 void KV_Store::encodeIndexAndSet(const std::string &key,
                                  const uint32_t segment_id,
                                  const uint32_t file_offset) {
-  uint64_t entry_loc = ((uint64_t)segment_id << 32) | file_offset;
+  uint64_t entry_loc = ((uint64_t)file_offset << 32) | segment_id;
   hash_table.createIndex(key, entry_loc);
 }
 
@@ -115,7 +120,6 @@ void KV_Store::set(std::string &key, std::string &value) {
  *
  */
 std::optional<std::string> KV_Store::get(std::string &key) {
-  uint64_t hash = hash_table.generateHash(key);
   std::optional<uint64_t> location = hash_table.lookupHash(key);
 
   if (not location) {

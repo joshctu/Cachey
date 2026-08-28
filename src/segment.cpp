@@ -20,15 +20,20 @@
 Segment::Segment(uint32_t id, uint32_t size, std::filesystem::path file_path,
                  uint8_t HASH_SEED)
     : id(id), size(size), file_path(file_path), HASH_SEED(HASH_SEED) {
-  std::ofstream segmentFile(file_path);
+  std::fstream segmentFile(file_path);
+  if (!segmentFile.is_open()) {
+    std::ofstream create(file_path);
+    create.close();
+    return;
+  }
   segmentFile.close();
 }
 
 void Segment::replay(const RecordHandler &on_record) {
-  std::ifstream segmentFile(file_path, std::ios::binary);
+  std::ifstream segmentFile(file_path, std::ios::in | std::ios::binary);
+  int file_size = std::filesystem::file_size(file_path);
 
   if (!segmentFile) {
-    segmentFile.close();
     return;
   }
 
@@ -39,21 +44,32 @@ void Segment::replay(const RecordHandler &on_record) {
   std::streamoff offset = 0;
 
   while (offset < file_limit) {
-
     uint64_t stored_checksum;
     uint32_t key_size;
     uint32_t value_size;
     uint8_t operation;
+
+    int bytes_read = 0;
     segmentFile.read(reinterpret_cast<char *>(&stored_checksum),
                      sizeof(stored_checksum));
+    bytes_read += segmentFile.gcount();
+
     segmentFile.read(reinterpret_cast<char *>(&key_size), sizeof(key_size));
+    bytes_read += segmentFile.gcount();
+
     segmentFile.read(reinterpret_cast<char *>(&value_size), sizeof(value_size));
+    bytes_read += segmentFile.gcount();
+
     segmentFile.read(reinterpret_cast<char *>(&operation), sizeof(operation));
+    bytes_read += segmentFile.gcount();
 
-    if (segmentFile.gcount() == 0)
+    if (bytes_read == 0) {
+      segmentFile.close();
       break;
+    }
 
-    if (segmentFile.gcount() != SERIALIZED_HEADER_SIZE) {
+    if (bytes_read != SERIALIZED_HEADER_SIZE) {
+      segmentFile.close();
       throw ReadException("Incomplete record header");
     }
 
@@ -65,14 +81,14 @@ void Segment::replay(const RecordHandler &on_record) {
 
     segmentFile.read(key.data(), key.size());
     segmentFile.read(value.data(), value.size());
-
     if (!verifyChecksum(stored_checksum, key, value, operation)) {
-      std::cout << "Checksum error" << std::endl;
-      throw ReadException("Data corrupted");
+      segmentFile.close();
+      throw ReadException("Invalid or not a record");
     }
 
     on_record(key, id, offset);
 
+    //    std::cout << "file offset: " << offset << std::endl;
     offset += static_cast<std::streamoff>(key.size()) +
               static_cast<std::streamoff>(value.size()) +
               static_cast<std::streamoff>(SERIALIZED_HEADER_SIZE);
@@ -83,6 +99,8 @@ void Segment::replay(const RecordHandler &on_record) {
   segmentFile.read(reinterpret_cast<char *>(&magic), sizeof(magic));
   if (magic == MAGIC)
     isSealed = true;
+
+  segmentFile.close();
 }
 
 /**
