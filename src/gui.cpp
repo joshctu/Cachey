@@ -93,32 +93,35 @@ void MainWindow::setupUi() {
 
   /* Left side widgets (set new key/value) */
   QWidget *left_parent = new QWidget(central);
-  QGroupBox *stats_box = new QGroupBox("Operation statistics", left_parent);
+  QGroupBox *stats_box_left =
+      new QGroupBox("Operation statistics", left_parent);
   set_key_input = new QLineEdit(left_parent);
   set_value_input = new QLineEdit(left_parent);
   set_submit_button = new QPushButton("Set new key/value", left_parent);
   delete_submit_button = new QPushButton("Delete key", left_parent);
   seed_entries_button = new QPushButton("Seed entries", left_parent);
 
-  QLabel *set_result_title = new QLabel("Result of last operation", stats_box);
-  set_result = new QLabel("N/A", stats_box);
+  QLabel *set_result_title =
+      new QLabel("Result of last operation", stats_box_left);
+  set_result = new QLabel("N/A", stats_box_left);
 
-  QLabel *total_writes_title = new QLabel("Total completed writes", stats_box);
-  total_writes = new QLabel("0", stats_box);
+  QLabel *total_writes_title =
+      new QLabel("Total completed writes", stats_box_left);
+  total_writes = new QLabel("0", stats_box_left);
 
-  set_timer_results = new QLabel(stats_box);
+  set_timer_results = new QLabel(stats_box_left);
 
   /* Left side layout */
   QHBoxLayout *left_parent_layout = new QHBoxLayout(left_parent);
   QVBoxLayout *left_operation_layout = new QVBoxLayout();
   QHBoxLayout *left_operation_buttons = new QHBoxLayout();
   QHBoxLayout *action_buttons_layout = new QHBoxLayout();
-  QVBoxLayout *left_statistic_layout = new QVBoxLayout(stats_box);
+  QVBoxLayout *left_statistic_layout = new QVBoxLayout(stats_box_left);
   QHBoxLayout *left_result_layout = new QHBoxLayout();
   QVBoxLayout *total_writes_layout = new QVBoxLayout();
 
   left_parent_layout->addLayout(left_operation_layout);
-  left_parent_layout->addWidget(stats_box);
+  left_parent_layout->addWidget(stats_box_left);
 
   left_operation_buttons->addWidget(set_submit_button);
   left_operation_buttons->addWidget(delete_submit_button);
@@ -142,23 +145,42 @@ void MainWindow::setupUi() {
   left_statistic_layout->addLayout(total_writes_layout);
 
   /* Right side widgets (get value from key) */
-  QWidget *get_widget_right = new QWidget(central);
-  get_key_input = new QLineEdit(get_widget_right);
-  get_submit_button = new QPushButton("Submit", get_widget_right);
-  get_result = new QLabel(get_widget_right);
-  get_timer_results = new QLabel(get_widget_right);
+  QWidget *right_parent = new QWidget(central);
+  QGroupBox *stats_box_right =
+      new QGroupBox("Get Operation Statistics", right_parent);
+  get_key_input = new QLineEdit(right_parent);
+  get_submit_button = new QPushButton("Submit", right_parent);
+  QLabel *get_result_title =
+      new QLabel("Result of last operation", stats_box_right);
+  get_result = new QLabel(stats_box_right);
+  get_timer_results = new QLabel(stats_box_right);
 
   /* Right side layout */
-  QVBoxLayout *right_layout = new QVBoxLayout(get_widget_right);
-  right_layout->addWidget(get_key_input);
-  right_layout->addWidget(get_submit_button);
-  right_layout->addWidget(get_result);
-  right_layout->addWidget(get_timer_results);
+  QHBoxLayout *right_parent_layout = new QHBoxLayout(right_parent);
+  QVBoxLayout *right_operation_layout = new QVBoxLayout();
+  QHBoxLayout *right_operation_buttons = new QHBoxLayout();
+  QVBoxLayout *right_statistic_layout = new QVBoxLayout(stats_box_right);
+  QHBoxLayout *right_result_layout = new QHBoxLayout();
+
+  right_parent_layout->addWidget(get_key_input);
+  right_parent_layout->addWidget(get_submit_button);
+  right_parent_layout->addLayout(right_operation_layout);
+  right_parent_layout->addWidget(stats_box_right);
+
+  right_operation_layout->addWidget(get_result);
+  right_operation_layout->addWidget(get_timer_results);
+
+  right_result_layout->addWidget(get_result_title);
+  right_result_layout->addWidget(get_result);
+
+  right_statistic_layout->setSpacing(12);
+  right_statistic_layout->addLayout(right_result_layout);
+  right_statistic_layout->addWidget(get_timer_results);
 
   /* Main layout */
   QHBoxLayout *main_layout = new QHBoxLayout(central);
   main_layout->addWidget(left_parent);
-  main_layout->addWidget(get_widget_right);
+  main_layout->addWidget(right_parent);
 }
 
 void MainWindow::setupConnections() {
