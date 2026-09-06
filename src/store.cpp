@@ -91,7 +91,9 @@ void KV_Store::encodeIndexAndSet(const std::string &key,
  */
 void KV_Store::set(std::string &key, std::string &value) {
 
-  uint64_t record_size = SERIALIZED_HEADER_SIZE + key.size() + value.size();
+  // First 32bit value is magic length value
+  uint64_t record_size =
+      sizeof(uint32_t) + SERIALIZED_HEADER_SIZE + key.size() + value.size();
 
   if (!segments[active_idx].canAppend(record_size)) {
     segments[active_idx].seal();
@@ -158,7 +160,9 @@ bool KV_Store::remove(std::string &key) {
 
   SegmentEntryHeader header(0, key.size(), 0x30);
 
-  uint64_t record_size = SERIALIZED_HEADER_SIZE + key.size() + 0;
+  // First 32bit value is magic length number
+  uint64_t record_size =
+      sizeof(uint32_t) + SERIALIZED_HEADER_SIZE + key.size() + 0;
   Segment &active_segment = segments[active_idx];
 
   if (!active_segment.canAppend(record_size)) {

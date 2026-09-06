@@ -18,6 +18,7 @@ struct SegmentFooter {
 
 // 0x10 -> GET, 0x20 -> SET, 0x30 -> DELETE
 struct SegmentEntryHeader {
+  uint32_t magic;
   uint64_t checksum;
   uint32_t key_size;
   uint32_t value_size;
@@ -29,12 +30,15 @@ struct SegmentEntryHeader {
 };
 
 struct SegmentRecord {
+  uint32_t length;
   SegmentEntryHeader header;
   std::string key;
   std::string value;
 
   SegmentRecord(SegmentEntryHeader header, std::string key, std::string value)
-      : header(header), key(key), value(value) {}
+      : header(header), key(key), value(value) {
+    length = SERIALIZED_HEADER_SIZE + key.size() + value.size();
+  }
 };
 
 class Segment {

@@ -44,12 +44,16 @@ void Segment::replay(const RecordHandler &on_record) {
   std::streamoff offset = 0;
 
   while (offset < file_limit) {
+    uint32_t record_length;
     uint64_t stored_checksum;
     uint32_t key_size;
     uint32_t value_size;
     uint8_t operation;
 
     int bytes_read = 0;
+    segmentFile.read(reinterpret_cast<char *>(&record_length),
+                     sizeof(record_length));
+    bytes_read += segmentFile.gcount();
     segmentFile.read(reinterpret_cast<char *>(&stored_checksum),
                      sizeof(stored_checksum));
     bytes_read += segmentFile.gcount();
@@ -63,14 +67,17 @@ void Segment::replay(const RecordHandler &on_record) {
     segmentFile.read(reinterpret_cast<char *>(&operation), sizeof(operation));
     bytes_read += segmentFile.gcount();
 
+    // Check if the read record length is a valid size. This acts as a magic
+    // number for the record.
+    if (record_length > (MAX_SEGMENT_SIZE - 10) ||
+        record_length < (SERIALIZED_HEADER_SIZE + sizeof(uint32_t))) {
+      offset += bytes_read;
+      continue;
+    }
+
     if (bytes_read == 0) {
       segmentFile.close();
       break;
-    }
-
-    if (bytes_read != SERIALIZED_HEADER_SIZE) {
-      segmentFile.close();
-      throw ReadException("Incomplete record header");
     }
 
     std::string key;
@@ -80,18 +87,17 @@ void Segment::replay(const RecordHandler &on_record) {
     value.resize(value_size);
 
     segmentFile.read(key.data(), key.size());
+    bytes_read += segmentFile.gcount();
     segmentFile.read(value.data(), value.size());
+    bytes_read += segmentFile.gcount();
+
     if (!verifyChecksum(stored_checksum, key, value, operation)) {
       segmentFile.close();
       throw ReadException("Invalid or not a record");
     }
 
     on_record(key, id, offset);
-
-    //    std::cout << "file offset: " << offset << std::endl;
-    offset += static_cast<std::streamoff>(key.size()) +
-              static_cast<std::streamoff>(value.size()) +
-              static_cast<std::streamoff>(SERIALIZED_HEADER_SIZE);
+    offset += bytes_read;
   }
 
   segmentFile.seekg(file_limit, std::ios::beg);
@@ -173,10 +179,12 @@ bool Segment::canAppend(uint32_t const entry_size) {
 void Segment::append(std::string &key, std::string &value) {
 
   SegmentEntryHeader header(key.size(), value.size(), 0x20);
+  uint32_t record_length = SERIALIZED_HEADER_SIZE + key.size() + value.size();
   header.checksum = generateChecksum(key, value, 0x20);
   std::fstream file(file_path, std::ios::in | std::ios::out | std::ios::binary);
 
   file.seekp(used);
+  file.write(reinterpret_cast<char *>(&record_length), sizeof(record_length));
   file.write(reinterpret_cast<char *>(&header.checksum),
              sizeof(header.checksum));
   file.write(reinterpret_cast<char *>(&header.key_size),
@@ -189,7 +197,8 @@ void Segment::append(std::string &key, std::string &value) {
   file.write(value.data(), value.size());
 
   file.close();
-  used += SERIALIZED_HEADER_SIZE + key.size() + value.size();
+  used += sizeof(record_length) + SERIALIZED_HEADER_SIZE + key.size() +
+          value.size();
   entry_count += 1;
 }
 
@@ -211,6 +220,9 @@ std::optional<std::string> Segment::read(std::string &key,
   uint64_t stored_checksum;
   uint32_t value_size;
 
+  // Skip the segment length here. It's not relevant in this function.
+  file.seekg(sizeof(uint32_t), std::ios::cur);
+
   file.read(reinterpret_cast<char *>(&stored_checksum),
             sizeof(stored_checksum));
   file.seekg(sizeof(uint32_t), std::ios::cur);
@@ -218,7 +230,6 @@ std::optional<std::string> Segment::read(std::string &key,
 
   // Skip to value
   file.seekg(sizeof(uint8_t) + key.size(), std::ios::cur);
-
   std::string value;
   value.resize(value_size);
   file.read(value.data(), value_size);
@@ -243,11 +254,13 @@ std::optional<std::string> Segment::read(std::string &key,
 void Segment::remove(std::string &key) {
 
   SegmentEntryHeader header(key.size(), 0, 0x30);
+  uint32_t record_length = SERIALIZED_HEADER_SIZE + key.size();
   header.checksum = generateChecksum(key, "", 0x30);
 
   std::fstream file(file_path, std::ios::in | std::ios::out | std::ios::binary);
 
   file.seekp(used);
+  file.write(reinterpret_cast<char *>(&record_length), sizeof(record_length));
   file.write(reinterpret_cast<const char *>(&header.checksum),
              sizeof(header.checksum));
   file.write(reinterpret_cast<const char *>(&header.key_size),

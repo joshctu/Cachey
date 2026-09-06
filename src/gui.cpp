@@ -11,6 +11,7 @@
 #include <QWidget>
 #include <iostream>
 #include <qboxlayout.h>
+#include <qsizepolicy.h>
 #include <string>
 
 MainWindow::MainWindow(StoreController &storeController, QWidget *parent)
@@ -93,11 +94,14 @@ void MainWindow::setupUi() {
 
   /* Left side widgets (set new key/value) */
   QWidget *left_parent = new QWidget(central);
+  left_parent->setMinimumWidth(500);
+  left_parent->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Preferred);
+
   QGroupBox *stats_box_left =
-      new QGroupBox("Operation statistics", left_parent);
+      new QGroupBox("Set Operation Statistics", left_parent);
   set_key_input = new QLineEdit(left_parent);
   set_value_input = new QLineEdit(left_parent);
-  set_submit_button = new QPushButton("Set new key/value", left_parent);
+  set_submit_button = new QPushButton("Set key", left_parent);
   delete_submit_button = new QPushButton("Delete key", left_parent);
   seed_entries_button = new QPushButton("Seed entries", left_parent);
 
@@ -146,9 +150,12 @@ void MainWindow::setupUi() {
 
   /* Right side widgets (get value from key) */
   QWidget *right_parent = new QWidget(central);
+  right_parent->setMinimumWidth(500);
+  right_parent->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Preferred);
   QGroupBox *stats_box_right =
       new QGroupBox("Get Operation Statistics", right_parent);
   get_key_input = new QLineEdit(right_parent);
+  get_key_input->setMinimumWidth(200);
   get_submit_button = new QPushButton("Submit", right_parent);
   QLabel *get_result_title =
       new QLabel("Result of last operation", stats_box_right);
