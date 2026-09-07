@@ -27,6 +27,9 @@ private:
   QLabel *get_timer_results;
   QLabel *total_writes;
   QPushButton *seed_entries_button;
+
+  QWidget *createLeftPanel();
+  QWidget *createRightPanel();
   void onSetKey();
   void onGetKey();
   void onDeleteKey();

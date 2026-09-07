@@ -76,6 +76,13 @@ void KV_Store::generateNewActiveSegment() {
   active_idx = segments.size() - 1;
 }
 
+/**
+ * @brief Creates a hash entry for a current record
+ *
+ * @param key The key for this record
+ * @param segment_id The id for this log file
+ * @param file_offset The byte offset for this record
+ */
 void KV_Store::encodeIndexAndSet(const std::string &key,
                                  const uint32_t segment_id,
                                  const uint32_t file_offset) {
@@ -150,6 +157,12 @@ std::optional<std::string> KV_Store::get(std::string &key) {
   return std::nullopt;
 };
 
+/**
+ * @brief Removes a record by creating a tombstone and updating the hash record
+ *
+ * @param key The key to remove
+ * @return True on removal success, false otherwise
+ */
 bool KV_Store::remove(std::string &key) {
   uint64_t hash = hash_table.generateHash(key);
 

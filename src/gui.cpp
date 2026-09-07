@@ -24,6 +24,11 @@ MainWindow::MainWindow(StoreController &storeController, QWidget *parent)
   setupConnections();
 }
 
+/**
+ * @brief This handler is called when the set new key button is pressed.
+ * Hydrates gui with store return data.
+ *
+ */
 void MainWindow::onSetKey() {
   std::string user_input_key = set_key_input->text().toStdString();
   std::string user_input_value = set_value_input->text().toStdString();
@@ -48,6 +53,10 @@ void MainWindow::onSetKey() {
   set_value_input->clear();
 }
 
+/**
+ * @brief This handler is called when the get key button is pressed. Hydrates
+ * gui with store return data.
+ */
 void MainWindow::onGetKey() {
   std::string user_input_key = get_key_input->text().toStdString();
 
@@ -65,6 +74,10 @@ void MainWindow::onGetKey() {
   get_key_input->clear();
 }
 
+/**
+ * @brief This handler is called when the delete key button is pressed. Hydrates
+ * gui with store return data.
+ */
 void MainWindow::onDeleteKey() {
   std::string user_input_key = set_key_input->text().toStdString();
 
@@ -80,6 +93,10 @@ void MainWindow::onDeleteKey() {
   set_key_input->clear();
 }
 
+/**
+ * @brief This handler is called when the seed entries button is pressed. Seeds
+ * 1000 consecutive entries with the shape key<int> / value<int>
+ */
 void MainWindow::onSeedEntries() {
   BulkSetResult result = storeController.handleSeedEntries(1000);
   long curr_writes = std::stoi(total_writes->text().toStdString());
@@ -87,109 +104,89 @@ void MainWindow::onSeedEntries() {
       std::to_string(curr_writes + result.writes_completed)));
 }
 
-void MainWindow::setupUi() {
+QWidget *MainWindow::createLeftPanel() {
+  QWidget *w = new QWidget;
+  w->setMinimumWidth(500);
+  w->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Preferred);
 
+  auto *opLayout = new QVBoxLayout; // operation inputs + buttons
+  set_key_input = new QLineEdit;
+  set_value_input = new QLineEdit;
+  opLayout->addWidget(set_key_input);
+  opLayout->addWidget(set_value_input);
+
+  auto *buttons = new QHBoxLayout;
+  set_submit_button = new QPushButton("Set key");
+  delete_submit_button = new QPushButton("Delete key");
+  seed_entries_button = new QPushButton("Seed entries");
+  buttons->addWidget(set_submit_button);
+  buttons->addWidget(delete_submit_button);
+  buttons->addWidget(seed_entries_button);
+  opLayout->addLayout(buttons);
+
+  auto *statsBox = new QGroupBox("Set Operation Statistics");
+  auto *statsLayout = new QVBoxLayout(statsBox);
+  statsLayout->addWidget(new QLabel("Result of last operation"));
+  set_result = new QLabel("N/A");
+  statsLayout->addWidget(set_result);
+  statsLayout->addStretch();
+
+  auto *parentLayout = new QHBoxLayout(w);
+  parentLayout->addLayout(opLayout);
+  parentLayout->addWidget(statsBox);
+  return w;
+}
+
+QWidget *MainWindow::createRightPanel() {
+  QWidget *w = new QWidget;
+  w->setMinimumWidth(500);
+  w->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Preferred);
+
+  auto *layout = new QHBoxLayout(w);
+  get_key_input = new QLineEdit;
+  get_submit_button = new QPushButton("Submit");
+  layout->addWidget(get_key_input);
+  layout->addWidget(get_submit_button);
+
+  auto *statsBox = new QGroupBox("Get Operation Statistics");
+  auto *statsLayout = new QVBoxLayout(statsBox);
+  get_result = new QLabel;
+  statsLayout->addWidget(new QLabel("Result of last operation"));
+  statsLayout->addWidget(get_result);
+
+  layout->addWidget(statsBox);
+  return w;
+}
+
+/**
+ * @brief This function is resposible for the creation of all gui widgets and
+ * layouts.
+ */
+void MainWindow::setupUi() {
   QWidget *central = new QWidget(this);
   setCentralWidget(central);
 
-  /* Left side widgets (set new key/value) */
-  QWidget *left_parent = new QWidget(central);
-  left_parent->setMinimumWidth(500);
-  left_parent->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Preferred);
+  auto *mainV = new QVBoxLayout(central);
 
-  QGroupBox *stats_box_left =
-      new QGroupBox("Set Operation Statistics", left_parent);
-  set_key_input = new QLineEdit(left_parent);
-  set_value_input = new QLineEdit(left_parent);
-  set_submit_button = new QPushButton("Set key", left_parent);
-  delete_submit_button = new QPushButton("Delete key", left_parent);
-  seed_entries_button = new QPushButton("Seed entries", left_parent);
+  // optional top widget:
+  // mainV->addWidget(new QLabel("Top area"));
 
-  QLabel *set_result_title =
-      new QLabel("Result of last operation", stats_box_left);
-  set_result = new QLabel("N/A", stats_box_left);
+  auto *h = new QHBoxLayout;
+  h->addWidget(createLeftPanel());
+  h->addWidget(createRightPanel());
+  mainV->addLayout(h);
 
-  QLabel *total_writes_title =
-      new QLabel("Total completed writes", stats_box_left);
-  total_writes = new QLabel("0", stats_box_left);
-
-  set_timer_results = new QLabel(stats_box_left);
-
-  /* Left side layout */
-  QHBoxLayout *left_parent_layout = new QHBoxLayout(left_parent);
-  QVBoxLayout *left_operation_layout = new QVBoxLayout();
-  QHBoxLayout *left_operation_buttons = new QHBoxLayout();
-  QHBoxLayout *action_buttons_layout = new QHBoxLayout();
-  QVBoxLayout *left_statistic_layout = new QVBoxLayout(stats_box_left);
-  QHBoxLayout *left_result_layout = new QHBoxLayout();
-  QVBoxLayout *total_writes_layout = new QVBoxLayout();
-
-  left_parent_layout->addLayout(left_operation_layout);
-  left_parent_layout->addWidget(stats_box_left);
-
-  left_operation_buttons->addWidget(set_submit_button);
-  left_operation_buttons->addWidget(delete_submit_button);
-
-  left_operation_layout->addWidget(set_key_input);
-  left_operation_layout->addWidget(set_value_input);
-  action_buttons_layout->addLayout(left_operation_buttons);
-  action_buttons_layout->addWidget(seed_entries_button);
-  left_operation_layout->addLayout(action_buttons_layout);
-
-  left_result_layout->addWidget(set_result_title);
-  left_result_layout->addWidget(set_result);
-
-  total_writes_layout->addWidget(total_writes_title);
-  total_writes_layout->addWidget(total_writes);
-  total_writes_layout->setSpacing(6);
-
-  left_statistic_layout->setSpacing(12);
-  left_statistic_layout->addLayout(left_result_layout);
-  left_statistic_layout->addWidget(set_timer_results);
-  left_statistic_layout->addLayout(total_writes_layout);
-
-  /* Right side widgets (get value from key) */
-  QWidget *right_parent = new QWidget(central);
-  right_parent->setMinimumWidth(500);
-  right_parent->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Preferred);
-  QGroupBox *stats_box_right =
-      new QGroupBox("Get Operation Statistics", right_parent);
-  get_key_input = new QLineEdit(right_parent);
-  get_key_input->setMinimumWidth(200);
-  get_submit_button = new QPushButton("Submit", right_parent);
-  QLabel *get_result_title =
-      new QLabel("Result of last operation", stats_box_right);
-  get_result = new QLabel(stats_box_right);
-  get_timer_results = new QLabel(stats_box_right);
-
-  /* Right side layout */
-  QHBoxLayout *right_parent_layout = new QHBoxLayout(right_parent);
-  QVBoxLayout *right_operation_layout = new QVBoxLayout();
-  QHBoxLayout *right_operation_buttons = new QHBoxLayout();
-  QVBoxLayout *right_statistic_layout = new QVBoxLayout(stats_box_right);
-  QHBoxLayout *right_result_layout = new QHBoxLayout();
-
-  right_parent_layout->addWidget(get_key_input);
-  right_parent_layout->addWidget(get_submit_button);
-  right_parent_layout->addLayout(right_operation_layout);
-  right_parent_layout->addWidget(stats_box_right);
-
-  right_operation_layout->addWidget(get_result);
-  right_operation_layout->addWidget(get_timer_results);
-
-  right_result_layout->addWidget(get_result_title);
-  right_result_layout->addWidget(get_result);
-
-  right_statistic_layout->setSpacing(12);
-  right_statistic_layout->addLayout(right_result_layout);
-  right_statistic_layout->addWidget(get_timer_results);
-
-  /* Main layout */
-  QHBoxLayout *main_layout = new QHBoxLayout(central);
-  main_layout->addWidget(left_parent);
-  main_layout->addWidget(right_parent);
+  // bottom area
+  auto *bottom = new QWidget;
+  auto *bottomLayout = new QHBoxLayout(bottom);
+  bottomLayout->addWidget(new QLabel("Test of bottom text"));
+  mainV->addWidget(bottom);
 }
 
+/**
+ * @brief This function connects all gui buttons and their actions to handlers.
+ *
+ */
 void MainWindow::setupConnections() {
 
   connect(set_submit_button, &QPushButton::clicked, this,
