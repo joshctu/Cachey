@@ -15,18 +15,21 @@ public:
 
 private:
   StoreController storeController;
+
   QLineEdit *set_key_input;
   QLineEdit *set_value_input;
   QPushButton *set_submit_button;
   QPushButton *delete_submit_button;
-  QLineEdit *get_key_input;
-  QPushButton *get_submit_button;
-  QLabel *get_result;
   QLabel *set_result;
   QLabel *set_timer_results;
-  QLabel *get_timer_results;
-  QLabel *total_writes;
   QPushButton *seed_entries_button;
+  QLabel *total_writes;
+
+  QPushButton *get_submit_button;
+  QLineEdit *get_key_input;
+  QLabel *get_result;
+  QLabel *get_timer_results;
+  QLabel *dead_bytes_results;
 
   QWidget *createLeftPanel();
   QWidget *createRightPanel();

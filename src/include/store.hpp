@@ -8,6 +8,8 @@
 #include "hash.hpp"
 #include "segment.hpp"
 
+constexpr int COMPACTION_THRESHOLD = 3;
+
 class KV_Store {
 
 private:
@@ -25,7 +27,10 @@ private:
 public:
   void encodeIndexAndSet(const std::string &key, const uint32_t segment_id,
                          const uint32_t file_offset);
+  bool isLatestRecord(const std::string &key, const uint32_t segment_id,
+                      const uint32_t file_offset);
   void set(std::string &key, std::string &value);
-  std::optional<std::string> get(std::string &key);
+  std::optional<std::tuple<std::string, uint32_t>> get(std::string &key);
   bool remove(std::string &key);
+  void compact();
 };

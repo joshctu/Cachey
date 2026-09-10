@@ -22,6 +22,8 @@ struct GetResult {
   std::string error;
   double time_elapsed;
   std::string value;
+  // temp dev field
+  uint32_t dead_bytes;
 };
 
 struct DeleteResult {
@@ -33,6 +35,10 @@ struct DeleteResult {
 class StoreController {
 private:
   KV_Store store;
+
+  // this is a dev member. It allows me to seed new entries with the same keys
+  // but different values. Good for quickly setting up compaction scenerios
+  int value_ticker;
 
 public:
   StoreController(KV_Store &store);

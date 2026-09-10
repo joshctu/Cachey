@@ -41,9 +41,7 @@ void MainWindow::onSetKey() {
   } else {
     set_result->setText("Success");
     set_timer_results->setText(
-        QString::fromStdString("Operation completed in " +
-                               std::to_string(result.time_elapsed)) +
-        "ms");
+        QString::fromStdString(std::to_string(result.time_elapsed)) + "ms");
     long curr_writes = std::stoi(total_writes->text().toStdString());
     total_writes->setText(
         QString::fromStdString(std::to_string(++curr_writes)));
@@ -64,9 +62,9 @@ void MainWindow::onGetKey() {
   if (result.success) {
     get_result->setText(QString::fromStdString(result.value));
     get_timer_results->setText(
-        QString::fromStdString("Operation completed in " +
-                               std::to_string(result.time_elapsed)) +
-        "ms");
+        QString::fromStdString(std::to_string(result.time_elapsed)) + "ms");
+    dead_bytes_results->setText(
+        QString::fromStdString(std::to_string(result.dead_bytes)));
   } else {
     get_result->setText(QString::fromStdString(result.error));
   }
@@ -84,8 +82,8 @@ void MainWindow::onDeleteKey() {
   DeleteResult result = storeController.handleDeleteKey(user_input_key);
   if (result.success) {
     set_result->setText("Deleted successfully");
-    get_timer_results->setText(QString::fromStdString(
-        "Operation completed in " + std::to_string(result.time_elapsed)));
+    get_timer_results->setText(
+        QString::fromStdString(std::to_string(result.time_elapsed)));
   } else {
     set_result->setText("Deletion failed");
     std::cout << result.error << std::endl;
@@ -104,12 +102,17 @@ void MainWindow::onSeedEntries() {
       std::to_string(curr_writes + result.writes_completed)));
 }
 
+/**
+ * @brief Creates the left panel of the gui
+ *
+ * @return The left panel widget
+ */
 QWidget *MainWindow::createLeftPanel() {
   QWidget *w = new QWidget;
   w->setMinimumWidth(500);
   w->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Preferred);
 
-  auto *opLayout = new QVBoxLayout; // operation inputs + buttons
+  auto *opLayout = new QVBoxLayout;
   set_key_input = new QLineEdit;
   set_value_input = new QLineEdit;
   opLayout->addWidget(set_key_input);
@@ -126,9 +129,25 @@ QWidget *MainWindow::createLeftPanel() {
 
   auto *statsBox = new QGroupBox("Set Operation Statistics");
   auto *statsLayout = new QVBoxLayout(statsBox);
-  statsLayout->addWidget(new QLabel("Result of last operation"));
+  auto *operation_outcome_layout = new QHBoxLayout();
+  auto *operation_speed_layout = new QHBoxLayout();
+  auto *total_writes_layout = new QHBoxLayout();
+  statsLayout->addLayout(operation_outcome_layout);
+  statsLayout->addLayout(operation_speed_layout);
+  statsLayout->addLayout(total_writes_layout);
+
+  operation_outcome_layout->addWidget(new QLabel("Result of last operation:"));
   set_result = new QLabel("N/A");
-  statsLayout->addWidget(set_result);
+  operation_outcome_layout->addWidget(set_result);
+
+  operation_speed_layout->addWidget(new QLabel("Last operation completed in:"));
+  set_timer_results = new QLabel("N/A");
+  operation_speed_layout->addWidget(set_timer_results);
+
+  total_writes_layout->addWidget(new QLabel("Total writes"));
+  total_writes = new QLabel("0");
+  total_writes_layout->addWidget(total_writes);
+
   statsLayout->addStretch();
 
   auto *parentLayout = new QHBoxLayout(w);
@@ -137,6 +156,11 @@ QWidget *MainWindow::createLeftPanel() {
   return w;
 }
 
+/**
+ * @brief Creates the right panel of the gui
+ *
+ * @return The right panel widget
+ */
 QWidget *MainWindow::createRightPanel() {
   QWidget *w = new QWidget;
   w->setMinimumWidth(500);
@@ -150,9 +174,25 @@ QWidget *MainWindow::createRightPanel() {
 
   auto *statsBox = new QGroupBox("Get Operation Statistics");
   auto *statsLayout = new QVBoxLayout(statsBox);
-  get_result = new QLabel;
-  statsLayout->addWidget(new QLabel("Result of last operation"));
-  statsLayout->addWidget(get_result);
+  auto *operation_outcome_layout = new QHBoxLayout();
+  auto *operation_speed_layout = new QHBoxLayout();
+  auto *dead_bytes_outcome_layout = new QHBoxLayout();
+
+  statsLayout->addLayout(operation_outcome_layout);
+  statsLayout->addLayout(operation_speed_layout);
+  statsLayout->addLayout(dead_bytes_outcome_layout);
+
+  operation_outcome_layout->addWidget(new QLabel("Result of last operation:"));
+  get_result = new QLabel("N/A");
+  operation_outcome_layout->addWidget(get_result);
+
+  operation_speed_layout->addWidget(new QLabel("Last operation completed in:"));
+  get_timer_results = new QLabel("N/A");
+  operation_speed_layout->addWidget(get_timer_results);
+
+  dead_bytes_outcome_layout->addWidget(new QLabel("Dead bytes in this file:"));
+  dead_bytes_results = new QLabel("N/A");
+  dead_bytes_outcome_layout->addWidget(dead_bytes_results);
 
   layout->addWidget(statsBox);
   return w;
@@ -167,9 +207,6 @@ void MainWindow::setupUi() {
   setCentralWidget(central);
 
   auto *mainV = new QVBoxLayout(central);
-
-  // optional top widget:
-  // mainV->addWidget(new QLabel("Top area"));
 
   auto *h = new QHBoxLayout;
   h->addWidget(createLeftPanel());
