@@ -220,52 +220,6 @@ void Segment::invalidateBytes(const uint32_t file_offset) {
 }
 
 /**
- * @brief Scan through the segment, checking whether records are live or dead.
- *
- * @return An integer representation of the percentage of dead records in this
- * segment.
- */
-int Segment::computeDeadBytes(const IndexHandler &is_latest_record) {
-  std::fstream file(file_path, std::ios::in | std::ios::out | std::ios::binary);
-
-  uint32_t dead_records = 0;
-  uint16_t record_count;
-  uint32_t total_used;
-  file.seekg(-(sizeof(uint16_t) + sizeof(uint32_t)), std::ios::end);
-  file.read(reinterpret_cast<char *>(&total_used), sizeof(total_used));
-  file.read(reinterpret_cast<char *>(&record_count), sizeof(record_count));
-
-  std::streamoff offset = 0;
-  file.seekg(offset);
-  while (offset < total_used) {
-    // TODO: Revist record verification here
-    offset += sizeof(decltype(SegmentRecord::length)) +
-              sizeof(decltype(SegmentEntryHeader::magic)) +
-              sizeof(decltype(SegmentEntryHeader::checksum));
-
-    uint32_t key_size;
-    file.read(reinterpret_cast<char *>(&key_size), sizeof(key_size));
-    offset += file.gcount();
-
-    offset += sizeof(decltype(SegmentEntryHeader::value_size)) +
-              sizeof(decltype(SegmentEntryHeader::operation));
-
-    file.seekg(offset);
-    std::string key;
-    file.read(reinterpret_cast<char *>(&key), key_size);
-    offset += file.gcount();
-
-    bool is_latest = is_latest_record(key, id, offset);
-
-    if (!is_latest)
-      dead_records += 1;
-  }
-
-  file.close();
-  return ((int)(dead_records / record_count) * 100);
-}
-
-/**
  * @brief Write a key/value to pair to the end of the segment
  *
  * @param key The key to write

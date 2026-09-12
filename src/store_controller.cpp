@@ -6,7 +6,7 @@
 #include <string>
 #include <tuple>
 
-StoreController::StoreController(KV_Store &store) : store(store) {
+StoreController::StoreController(KV_Store *store) : store(store) {
   value_ticker = 0;
 }
 
@@ -24,7 +24,7 @@ SetResult StoreController::handleSetKeyValue(std::string &key,
 
   QElapsedTimer timer;
   timer.start();
-  store.set(key, value);
+  store->set(key, value);
 
   double time = timer.nsecsElapsed() * 0.000001;
   return {true, "", time};
@@ -41,7 +41,7 @@ GetResult StoreController::handleGetValue(std::string &key) {
   try {
     QElapsedTimer timer;
     timer.start();
-    std::optional<std::tuple<std::string, uint32_t>> result = store.get(key);
+    std::optional<std::tuple<std::string, uint32_t>> result = store->get(key);
     if (result) {
       double time = timer.nsecsElapsed() * 0.000001;
       std::tuple<std::string, uint32_t> valid_result = *result;
@@ -65,7 +65,7 @@ DeleteResult StoreController::handleDeleteKey(std::string &key) {
   try {
     QElapsedTimer timer;
     timer.start();
-    auto result = store.remove(key);
+    auto result = store->remove(key);
     if (result) {
       double time = timer.nsecsElapsed() * 0.000001;
       return {true, "", time};
@@ -87,7 +87,7 @@ BulkSetResult StoreController::handleSeedEntries(int number_of_entries) {
     std::string value = "value" + std::to_string(value_ticker);
 
     timer.restart();
-    store.set(key, value);
+    store->set(key, value);
     writes_completed += 1;
     avg_time_accumulator += timer.nsecsElapsed();
     value_ticker += 1;

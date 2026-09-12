@@ -21,7 +21,7 @@ int main(int argc, char *argv[]) {
   std::filesystem::create_directories("./database/wal/segments");
 
   KV_Store store;
-  StoreController storeController(store);
+  StoreController storeController(&store);
   MainWindow mainWindow(storeController);
 
   mainWindow.show();

@@ -7,7 +7,7 @@
 
 constexpr uint32_t MAX_SEGMENT_SIZE = 256;
 constexpr uint32_t SERIALIZED_HEADER_SIZE = 17;
-constexpr uint32_t SERIALIZED_FOOTER_SIZE = 14;
+constexpr uint32_t SERIALIZED_FOOTER_SIZE = 22;
 constexpr uint32_t MAGIC = 0xDEAD2BAD;
 
 struct SegmentFooter {
@@ -15,6 +15,7 @@ struct SegmentFooter {
   uint32_t bytes_written;
   uint32_t dead_bytes;
   uint16_t entry_count;
+  uint64_t segment_id;
 };
 
 // 0x10 -> GET, 0x20 -> SET, 0x30 -> DELETE

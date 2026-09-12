@@ -34,14 +34,14 @@ struct DeleteResult {
 
 class StoreController {
 private:
-  KV_Store store;
+  KV_Store *store;
 
   // this is a dev member. It allows me to seed new entries with the same keys
   // but different values. Good for quickly setting up compaction scenerios
   int value_ticker;
 
 public:
-  StoreController(KV_Store &store);
+  StoreController(KV_Store *store);
 
   SetResult handleSetKeyValue(std::string &key, std::string &value);
   GetResult handleGetValue(std::string &key);

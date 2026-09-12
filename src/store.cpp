@@ -39,41 +39,45 @@ KV_Store::KV_Store() {
 
   for (const auto &file : log_files) {
     uint32_t segment_id = std::stoi(file.stem().string());
-    segments.emplace_back(segment_id, MAX_SEGMENT_SIZE, file,
-                          hash_table.HASH_SEED);
-    Segment &segment = segments.back();
+    segment_map[segment_id] = std::make_unique<Segment>(
+        segment_id, MAX_SEGMENT_SIZE, std::filesystem::path(file),
+        hash_table.HASH_SEED);
+
     try {
-      segment.replay([this](const std::string &key, const uint32_t segment_id,
-                            const uint32_t file_offset) {
+      segment_map[segment_id]->replay([this](const std::string &key,
+                                             const uint32_t segment_id,
+                                             const uint32_t file_offset) {
         encodeIndexAndSet(key, segment_id, file_offset);
       });
     } catch (ReadException &e) {
       std::cout << e.what() << std::endl;
     }
 
-    segment_map[segment_id] = segments.size() - 1;
-
-    if (!segment.isSealed)
-      active_idx = segments.size() - 1;
+    if (!segment_map[segment_id]->isSealed)
+      active_id = segment_id;
   }
+}
+
+uint64_t KV_Store::getSegmentId() {
+  return next_segment_id.fetch_add(1, std::memory_order_relaxed);
 }
 
 /**
  * @brief generate a new log segment in sequential order
  */
 void KV_Store::generateNewActiveSegment() {
-  unsigned long segment_id = segments.size() + 1;
+  uint64_t segment_id = getSegmentId();
 
   std::stringstream file;
 
-  file << std::setfill('0') << std::setw(5) << segment_id << ".log";
+  file << std::setfill('0') << std::setw(6) << segment_id << ".log";
 
   std::filesystem::path p =
       std::filesystem::path("./database/wal/segments") / file.str();
 
-  segments.emplace_back(segment_id, MAX_SEGMENT_SIZE, p, hash_table.HASH_SEED);
-  segment_map[segment_id] = segments.size() - 1;
-  active_idx = segments.size() - 1;
+  segment_map[segment_id] = std::make_unique<Segment>(
+      segment_id, MAX_SEGMENT_SIZE, p, hash_table.HASH_SEED);
+  active_id = segment_id;
 }
 
 /**
@@ -115,31 +119,29 @@ void KV_Store::set(std::string &key, std::string &value) {
     auto it = segment_map.find(old_segment_id);
 
     if (it != segment_map.end()) {
-      uint32_t idx = it->second;
-      if (idx < segment_map.size()) {
-        Segment &old_segment = segments[idx];
-        old_segment.invalidateBytes(old_file_offset);
-      }
+      auto &segment = it->second;
+      segment->invalidateBytes(old_file_offset);
     }
   }
+
   // First 32bit value is magic length value
   uint64_t record_size =
       sizeof(uint32_t) + SERIALIZED_HEADER_SIZE + key.size() + value.size();
 
-  if (!segments[active_idx].canAppend(record_size)) {
-    segments[active_idx].seal();
+  if (!segment_map[active_id]->canAppend(record_size)) {
+    segment_map[active_id]->seal();
     generateNewActiveSegment();
   }
 
-  Segment &active_segment = segments[active_idx];
+  auto &active_segment = segment_map[active_id];
 
-  uint32_t curr_file_ptr = active_segment.used;
-  active_segment.append(key, value);
+  uint32_t curr_file_ptr = active_segment->used;
+  active_segment->append(key, value);
 
   // Encode file and byte offset in index
   uint64_t encode_offset = static_cast<uint64_t>(curr_file_ptr) << 32 |
                            static_cast<uint32_t>(std::stoi(
-                               active_segment.file_path.stem().string()));
+                               active_segment->file_path.stem().string()));
 
   hash_table.createIndex(key, encode_offset);
 }
@@ -167,18 +169,15 @@ KV_Store::get(std::string &key) {
 
   auto it = segment_map.find(segment_id);
   if (it != segment_map.end()) {
-    uint32_t idx = it->second;
-    if (idx < segments.size()) {
-      Segment &found_segment = segments[idx];
-      auto value = found_segment.read(key, file_offset);
-      auto dead_bytes = found_segment.readDeadBytes();
+    auto &segment = it->second;
+    auto value = segment->read(key, file_offset);
+    auto dead_bytes = segment->readDeadBytes();
 
-      if (not value)
-        return std::nullopt;
+    if (not value)
+      return std::nullopt;
 
-      std::string valid_value = *value;
-      return std::tuple(valid_value, dead_bytes);
-    }
+    std::string valid_value = *value;
+    return std::tuple(valid_value, dead_bytes);
   }
   return std::nullopt;
 };
@@ -202,30 +201,35 @@ bool KV_Store::remove(std::string &key) {
   uint32_t file_offset = static_cast<uint32_t>(valid_location >> 32);
   uint32_t segment_id = static_cast<uint32_t>(valid_location);
 
-  Segment &old_segment = segments[segment_id];
-  old_segment.invalidateBytes(file_offset);
+  auto it = segment_map.find(segment_id);
+  if (it != segment_map.end()) {
+    auto &old_segment = it->second;
+    old_segment->invalidateBytes(file_offset);
+  } else {
+    // TODO: Handle not found case
+  }
 
   SegmentEntryHeader header(0, key.size(), 0x30);
 
   // First 32bit value is magic length number
   uint64_t record_size = sizeof(decltype(SegmentRecord::length)) +
                          SERIALIZED_HEADER_SIZE + key.size() + 0;
-  Segment &active_segment = segments[active_idx];
+  auto &active_segment = segment_map[active_id];
 
-  if (!active_segment.canAppend(record_size)) {
-    active_segment.seal();
+  if (!active_segment->canAppend(record_size)) {
+    active_segment->seal();
     generateNewActiveSegment();
-    active_segment = segments[active_idx];
+    auto &active_segment = segment_map[active_id];
   }
 
-  uint32_t curr_file_ptr = active_segment.used;
+  uint32_t curr_file_ptr = active_segment->used;
 
-  active_segment.remove(key);
+  active_segment->remove(key);
 
   // Encode file and byte offset in index
   uint64_t encode_offset =
       static_cast<uint64_t>(curr_file_ptr) << 32 |
-      static_cast<uint32_t>(std::stoi(active_segment.file_path.stem()));
+      static_cast<uint32_t>(std::stoi(active_segment->file_path.stem()));
 
   hash_table.updateIndex(hash, encode_offset);
 
@@ -236,29 +240,39 @@ void KV_Store::compact() {
   /* Step 1: a heuristic triggered this function. Maybe we reached a threshold
    segment number.
 
-   Step 2: Comb segments starting from oldest. tally dead bytes for each
-   segment. If dead / live bytes for this segment meets a threshold, add to
-   compaction candidates. When we reach a certain number of compaction
-   candidates, break.
+   Step 2: Comb segments starting from oldest. Read dead bytes field in footer.
+   If dead / live bytes for this segment meets a threshold, add to compaction
+   candidates. When we reach a certain number of compaction candidates, break.
 
    Step 3: Begin iterating through candidates. Skip invalid records and write
    valid records for each candidate to new files.
   */
-  std::vector<Segment> candidates;
+  std::vector<std::unique_ptr<Segment>> candidates;
 
-  for (auto &segment : segments) {
-    if (segment.isSealed) {
-      int dead_bytes_percent = segment.computeDeadBytes(
-          [this](const std::string &key, const uint32_t segment_id,
-                 const uint32_t file_offset) {
-            return isLatestRecord(key, segment_id, file_offset);
-          });
+  for (auto &entry : segment_map) {
+    auto &segment = entry.second;
+    if (segment->isSealed) {
+      int dead_bytes = segment->readDeadBytes();
+
+      int dead_bytes_percent = (dead_bytes / MAX_SEGMENT_SIZE) * 100;
 
       if (dead_bytes_percent > 50) {
-        candidates.push_back(segment);
+        candidates.push_back(std::move(segment));
         if (candidates.size() == COMPACTION_THRESHOLD)
           break;
       }
     }
   }
+
+  if (candidates.size() != COMPACTION_THRESHOLD)
+    return;
+
+  /*
+   * I need to now iterate through each segment looking for valid records. Lets
+   * say i find one. Should the segment have a lambda that writes that record to
+   * the new file?
+   *
+   * Say I try to write but the new file is full. I need to commit the file and
+   * open a new one.ff
+   */
 }
