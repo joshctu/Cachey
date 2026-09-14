@@ -35,16 +35,25 @@ Segment::Segment(uint32_t id, uint32_t size, std::filesystem::path file_path,
     uint32_t dead_bytes = 0;
     create.write(reinterpret_cast<const char *>(&dead_bytes),
                  sizeof(dead_bytes));
+    create.seekp(sizeof(decltype(SegmentFooter::entry_count)), std::ios::cur);
+    create.write(reinterpret_cast<char *>(&id), sizeof(id));
     create.close();
     return;
   }
 }
 
+/**
+ * @brief Replay all the records currently in this segment. Add all records back
+ * to index map and set segment metadata.
+ *
+ * @param on_record Lambda passed from the store. Takes the key, segment_id, and
+ * file offset to set the record in the index map
+ */
 void Segment::replay(const ReplayHandler &on_record) {
-  std::ifstream segmentFile(file_path, std::ios::in | std::ios::binary);
+  std::ifstream segment_file(file_path, std::ios::in | std::ios::binary);
   int file_size = std::filesystem::file_size(file_path);
 
-  if (!segmentFile) {
+  if (!segment_file) {
     return;
   }
 
@@ -62,32 +71,33 @@ void Segment::replay(const ReplayHandler &on_record) {
     uint8_t operation;
 
     int bytes_read = 0;
-    segmentFile.read(reinterpret_cast<char *>(&record_length),
-                     sizeof(record_length));
-    bytes_read += segmentFile.gcount();
-    segmentFile.read(reinterpret_cast<char *>(&stored_checksum),
-                     sizeof(stored_checksum));
-    bytes_read += segmentFile.gcount();
+    segment_file.read(reinterpret_cast<char *>(&record_length),
+                      sizeof(record_length));
+    bytes_read += segment_file.gcount();
+    segment_file.read(reinterpret_cast<char *>(&stored_checksum),
+                      sizeof(stored_checksum));
+    bytes_read += segment_file.gcount();
 
-    segmentFile.read(reinterpret_cast<char *>(&key_size), sizeof(key_size));
-    bytes_read += segmentFile.gcount();
+    segment_file.read(reinterpret_cast<char *>(&key_size), sizeof(key_size));
+    bytes_read += segment_file.gcount();
 
-    segmentFile.read(reinterpret_cast<char *>(&value_size), sizeof(value_size));
-    bytes_read += segmentFile.gcount();
+    segment_file.read(reinterpret_cast<char *>(&value_size),
+                      sizeof(value_size));
+    bytes_read += segment_file.gcount();
 
-    segmentFile.read(reinterpret_cast<char *>(&operation), sizeof(operation));
-    bytes_read += segmentFile.gcount();
+    segment_file.read(reinterpret_cast<char *>(&operation), sizeof(operation));
+    bytes_read += segment_file.gcount();
 
     // Check if the read record length is a valid size. This acts as a magic
     // number for the record.
-    if (record_length > (MAX_SEGMENT_SIZE - 10) ||
+    if (record_length > file_limit ||
         record_length < (SERIALIZED_HEADER_SIZE + sizeof(uint32_t))) {
       offset += bytes_read;
       continue;
     }
 
     if (bytes_read == 0) {
-      segmentFile.close();
+      segment_file.close();
       break;
     }
 
@@ -97,13 +107,13 @@ void Segment::replay(const ReplayHandler &on_record) {
     key.resize(key_size);
     value.resize(value_size);
 
-    segmentFile.read(key.data(), key.size());
-    bytes_read += segmentFile.gcount();
-    segmentFile.read(value.data(), value.size());
-    bytes_read += segmentFile.gcount();
+    segment_file.read(key.data(), key.size());
+    bytes_read += segment_file.gcount();
+    segment_file.read(value.data(), value.size());
+    bytes_read += segment_file.gcount();
 
     if (!verifyChecksum(stored_checksum, key, value, operation)) {
-      segmentFile.close();
+      segment_file.close();
       throw ReadException("Invalid or not a record");
     }
 
@@ -111,13 +121,13 @@ void Segment::replay(const ReplayHandler &on_record) {
     offset += bytes_read;
   }
 
-  segmentFile.seekg(file_limit, std::ios::beg);
+  segment_file.seekg(file_limit, std::ios::beg);
   uint32_t magic;
-  segmentFile.read(reinterpret_cast<char *>(&magic), sizeof(magic));
+  segment_file.read(reinterpret_cast<char *>(&magic), sizeof(magic));
   if (magic == MAGIC)
     isSealed = true;
 
-  segmentFile.close();
+  segment_file.close();
 }
 
 /**
@@ -219,6 +229,34 @@ void Segment::invalidateBytes(const uint32_t file_offset) {
   file.close();
 }
 
+bool Segment::nextValidRecord(Cursor &c, SegmentRecordView &rec) {
+
+  if (c.file_offset >= used)
+    return false;
+
+  SegmentEntryHeader header{};
+  std::ifstream file(file_path, std::ios::in | std::ios::binary);
+
+  file.seekg(c.file_offset, std::ios::beg);
+  file.read(reinterpret_cast<char *>(&rec.length), sizeof(rec.length));
+  file.read(reinterpret_cast<char *>(&header.checksum),
+            sizeof(header.checksum));
+  file.read(reinterpret_cast<char *>(&header.key_size),
+            sizeof(header.key_size));
+  file.read(reinterpret_cast<char *>(&header.value_size),
+            sizeof(header.value_size));
+  file.read(reinterpret_cast<char *>(&header.operation),
+            sizeof(header.operation));
+
+  file.read(reinterpret_cast<char *>(rec.key.data()), header.key_size);
+  file.read(reinterpret_cast<char *>(rec.value.data()), header.value_size);
+
+  rec.header = header;
+
+  c.file_offset += rec.length;
+  return true;
+}
+
 /**
  * @brief Write a key/value to pair to the end of the segment
  *
@@ -243,8 +281,8 @@ void Segment::append(std::string &key, std::string &value) {
              sizeof(header.value_size));
   file.write(reinterpret_cast<char *>(&header.operation),
              sizeof(header.operation));
-  file.write(key.data(), key.size());
-  file.write(value.data(), value.size());
+  file.write(key.data(), header.key_size);
+  file.write(value.data(), header.value_size);
 
   used += record_length;
   entry_count += 1;
@@ -386,8 +424,11 @@ void Segment::seal() {
   file.seekp(sizeof(decltype(SegmentFooter::dead_bytes)), std::ios::cur);
   file.write(reinterpret_cast<const char *>(&entry_count), sizeof(entry_count));
 
-  used += offset;
-
   isSealed = true;
   file.close();
 }
+
+/**
+ * @brief This function simply deletes the associated log file
+ */
+void Segment::deleteFile() { std::filesystem::remove(file_path); }

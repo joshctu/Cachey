@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <optional>
@@ -27,7 +28,8 @@ KV_Store::KV_Store() {
   }
 
   if (log_files.empty()) {
-    generateNewActiveSegment();
+    uint32_t segment_id = generateNewSegment();
+    setActiveSegment(segment_id);
     return;
   }
 
@@ -37,8 +39,11 @@ KV_Store::KV_Store() {
                      std::stoi(b.stem().string());
             });
 
+  uint32_t max_segment_id = 1;
   for (const auto &file : log_files) {
-    uint32_t segment_id = std::stoi(file.stem().string());
+    uint32_t segment_id = readSegmentId(file);
+    cur_segment_ids.push_back(segment_id);
+    max_segment_id = std::max(max_segment_id, segment_id);
     segment_map[segment_id] = std::make_unique<Segment>(
         segment_id, MAX_SEGMENT_SIZE, std::filesystem::path(file),
         hash_table.HASH_SEED);
@@ -56,17 +61,62 @@ KV_Store::KV_Store() {
     if (!segment_map[segment_id]->isSealed)
       active_id = segment_id;
   }
+
+  // We start operation with the 1 + the max segment id seen on startup.
+  next_segment_id.store(max_segment_id + 1, std::memory_order_relaxed);
 }
 
-uint64_t KV_Store::getSegmentId() {
+/**
+ * @brief Sets a new active segment id
+ *
+ * @param segment_id The segment id of the new active segment
+ */
+void KV_Store::setActiveSegment(const uint32_t segment_id) {
+  active_id = segment_id;
+}
+
+/**
+ * @brief Generates a new segment_id
+ *
+ * @return The next monotonically increasing segment_id
+ */
+uint32_t KV_Store::generateSegmentId() {
   return next_segment_id.fetch_add(1, std::memory_order_relaxed);
 }
 
 /**
- * @brief generate a new log segment in sequential order
+ * @brief Given a file path, find and return the segment id metadata
+ *
+ * @param path The path to the log file
+ *
+ * @return The segment id of this segment
  */
-void KV_Store::generateNewActiveSegment() {
-  uint64_t segment_id = getSegmentId();
+uint32_t KV_Store::readSegmentId(const std::filesystem::path &path) {
+  std::ifstream segment_file(path, std::ios::in | std::ios::binary);
+
+  std::streamoff offset = static_cast<std::streamoff>(MAX_SEGMENT_SIZE) -
+                          static_cast<std::streamoff>(SERIALIZED_FOOTER_SIZE);
+
+  offset += sizeof(decltype(SegmentFooter::magic)) +
+            sizeof(decltype(SegmentFooter::bytes_written)) +
+            sizeof(decltype(SegmentFooter::dead_bytes)) +
+            sizeof(decltype(SegmentFooter::entry_count));
+
+  segment_file.seekg(offset, std::ios::beg);
+  uint32_t segment_id;
+
+  segment_file.read(reinterpret_cast<char *>(&segment_id), sizeof(segment_id));
+  return segment_id;
+}
+
+/**
+ * @brief generate a new log segment in sequential order
+ *
+ * @return The segment_id of the new segment.
+ */
+uint32_t KV_Store::generateNewSegment() {
+  uint32_t segment_id = generateSegmentId();
+  cur_segment_ids.push_back(segment_id);
 
   std::stringstream file;
 
@@ -77,7 +127,10 @@ void KV_Store::generateNewActiveSegment() {
 
   segment_map[segment_id] = std::make_unique<Segment>(
       segment_id, MAX_SEGMENT_SIZE, p, hash_table.HASH_SEED);
-  active_id = segment_id;
+
+  if (segment_map.size() % 20 == 0)
+    compact();
+  return segment_id;
 }
 
 /**
@@ -130,7 +183,8 @@ void KV_Store::set(std::string &key, std::string &value) {
 
   if (!segment_map[active_id]->canAppend(record_size)) {
     segment_map[active_id]->seal();
-    generateNewActiveSegment();
+    uint32_t segment_id = generateNewSegment();
+    setActiveSegment(segment_id);
   }
 
   auto &active_segment = segment_map[active_id];
@@ -218,7 +272,8 @@ bool KV_Store::remove(std::string &key) {
 
   if (!active_segment->canAppend(record_size)) {
     active_segment->seal();
-    generateNewActiveSegment();
+    uint32_t new_segment_id = generateNewSegment();
+    setActiveSegment(new_segment_id);
     auto &active_segment = segment_map[active_id];
   }
 
@@ -236,6 +291,13 @@ bool KV_Store::remove(std::string &key) {
   return true;
 }
 
+/**
+ * @brief This function iterates through current log files looking for files
+ * with a dead_bytes percentage of over 50%. Currently when 3 candidate files
+ * are found they are compacted. Original segments and their log files are
+ * deleted. Then the function returns.
+ *
+ */
 void KV_Store::compact() {
   /* Step 1: a heuristic triggered this function. Maybe we reached a threshold
    segment number.
@@ -249,12 +311,14 @@ void KV_Store::compact() {
   */
   std::vector<std::unique_ptr<Segment>> candidates;
 
-  for (auto &entry : segment_map) {
-    auto &segment = entry.second;
+  std::sort(cur_segment_ids.begin(), cur_segment_ids.end());
+
+  for (auto segment_id : cur_segment_ids) {
+    auto &segment = segment_map[segment_id];
     if (segment->isSealed) {
       int dead_bytes = segment->readDeadBytes();
 
-      int dead_bytes_percent = (dead_bytes / MAX_SEGMENT_SIZE) * 100;
+      int dead_bytes_percent = ((float)dead_bytes / MAX_SEGMENT_SIZE) * 100;
 
       if (dead_bytes_percent > 50) {
         candidates.push_back(std::move(segment));
@@ -273,6 +337,46 @@ void KV_Store::compact() {
    * the new file?
    *
    * Say I try to write but the new file is full. I need to commit the file and
-   * open a new one.ff
+   * open a new one.
    */
+  auto &cur_writeable_segment = segment_map[generateNewSegment()];
+
+  for (auto &candidate : candidates) {
+    Cursor c{};
+    SegmentRecordView rec;
+    while (candidate->nextValidRecord(c, rec)) {
+
+      if (!isLatestRecord(rec.key.data(), candidate->id, c.file_offset)) {
+        continue;
+      }
+
+      if (!cur_writeable_segment->canAppend(rec.length)) {
+        cur_writeable_segment->seal();
+        auto &cur_writable_segment = segment_map[generateNewSegment()];
+      }
+
+      cur_writeable_segment->append(rec.key, rec.value);
+    }
+  }
+
+  if (cur_writeable_segment->used > 0) {
+    cur_writeable_segment->seal();
+  } else {
+    destroySegment(cur_writeable_segment);
+  }
+
+  for (auto &candidate : candidates) {
+    destroySegment(candidate);
+  }
+}
+
+void KV_Store::destroySegment(std::unique_ptr<Segment> &segment) {
+  segment->deleteFile();
+  auto it =
+      std::find(cur_segment_ids.begin(), cur_segment_ids.end(), segment->id);
+
+  if (it != cur_segment_ids.end())
+    cur_segment_ids.erase(it);
+
+  segment_map.erase(segment->id);
 }
