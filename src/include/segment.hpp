@@ -7,7 +7,7 @@
 
 constexpr uint32_t MAX_SEGMENT_SIZE = 256;
 constexpr uint32_t SERIALIZED_HEADER_SIZE = 17;
-constexpr uint32_t SERIALIZED_FOOTER_SIZE = 22;
+constexpr uint32_t SERIALIZED_FOOTER_SIZE = 18;
 constexpr uint32_t MAGIC = 0xDEAD2BAD;
 
 struct Cursor {
@@ -20,7 +20,7 @@ struct SegmentFooter {
   uint32_t bytes_written;
   uint32_t dead_bytes;
   uint16_t entry_count;
-  uint64_t segment_id;
+  uint32_t segment_id;
 };
 
 // 0x10 -> GET, 0x20 -> SET, 0x30 -> DELETE
@@ -68,7 +68,7 @@ public:
 
 public:
   uint8_t HASH_SEED;
-  uint64_t id;
+  uint32_t id;
   uint32_t size;
   uint32_t used = 0;
   uint16_t entry_count = 0;
@@ -80,20 +80,21 @@ public:
           uint8_t HASH_SEED);
 
 public:
-  void replay(const ReplayHandler &on_record);
+  uint32_t replay(const ReplayHandler &on_record);
   uint64_t generateChecksum(const std::string &key, const std::string &value,
-                            uint8_t operation);
+                            const uint8_t operation);
   void seal();
   bool verifyChecksum(const uint64_t &stored_checksum, const std::string &key,
                       const std::string &value, const uint8_t operation);
-  bool canAppend(uint32_t const entry_size);
-  void invalidateBytes(uint32_t const file_offset);
+  bool canAppend(const uint32_t entry_size);
+  void invalidateBytes(const uint32_t file_offset);
   uint32_t readDeadBytes();
   int computeDeadBytes(const IndexHandler &is_latest_record);
   bool nextValidRecord(Cursor &c, SegmentRecordView &rec);
 
-  void append(std::string &key, std::string &value);
-  std::optional<std::string> read(std::string &key, uint32_t const offset);
-  void remove(std::string &key);
+  void append(const std::string &key, const std::string &value);
+  std::optional<const std::string> read(const std::string &key,
+                                        uint32_t const offset);
+  void remove(const std::string &key);
   void deleteFile();
 };

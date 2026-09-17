@@ -14,7 +14,7 @@ find_package(Qt6 REQUIRED COMPONENTS Widgets)
 find_package(Qt6 REQUIRED COMPONENTS Core)
 qt_standard_project_setup()
 
-qt_add_executable(kv_store_init src/main.cpp src/store.cpp src/segment.cpp src/hash.cpp src/gui.cpp src/store_controller.cpp src/include/gui.hpp)
+qt_add_executable(kv_store_init src/main.cpp src/store.cpp src/segment.cpp src/hash.cpp src/gui.cpp src/store_controller.cpp src/include/gui.hpp src/include/store_controller.hpp)
 
 target_link_libraries(kv_store_init PRIVATE xxHash::xxhash)
 target_link_libraries(kv_store_init PRIVATE Qt6::Widgets)

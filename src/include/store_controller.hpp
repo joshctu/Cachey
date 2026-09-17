@@ -1,5 +1,6 @@
 #pragma once
 
+#include "QObject"
 #include "store.hpp"
 #include <string>
 
@@ -32,7 +33,9 @@ struct DeleteResult {
   double time_elapsed;
 };
 
-class StoreController {
+class StoreController : public QObject, public IStoreObserver {
+  Q_OBJECT
+
 private:
   KV_Store *store;
 
@@ -43,9 +46,15 @@ private:
 public:
   StoreController(KV_Store *store);
 
+  InitResult handleStoreInit();
   SetResult handleSetKeyValue(std::string &key, std::string &value);
   GetResult handleGetValue(std::string &key);
   DeleteResult handleDeleteKey(std::string &key);
-
   BulkSetResult handleSeedEntries(int number_of_entries);
+  void onCompactionComplete(CompactionResult &result) override;
+
+  ~StoreController();
+
+signals:
+  void signalCompactionComplete(int segments_merged, uint16_t records_removed);
 };

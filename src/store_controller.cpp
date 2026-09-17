@@ -8,7 +8,19 @@
 
 StoreController::StoreController(KV_Store *store) : store(store) {
   value_ticker = 0;
+  store->registerObserver(this);
 }
+
+InitResult StoreController::handleStoreInit() {
+  InitResult init_metadata = store->init();
+
+  return init_metadata;
+}
+
+void StoreController::onCompactionComplete(CompactionResult &result) {
+
+  emit signalCompactionComplete(result.segments_merged, result.records_removed);
+};
 
 SetResult StoreController::handleSetKeyValue(std::string &key,
                                              std::string &value) {
@@ -96,3 +108,5 @@ BulkSetResult StoreController::handleSeedEntries(int number_of_entries) {
   return {true, "", number_of_entries, writes_completed,
           (avg_time_accumulator / writes_completed) * 0.000001};
 }
+
+StoreController::~StoreController() = default;

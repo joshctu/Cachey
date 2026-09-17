@@ -14,11 +14,14 @@
 #include <qsizepolicy.h>
 #include <string>
 
-MainWindow::MainWindow(StoreController &storeController, QWidget *parent)
+MainWindow::MainWindow(StoreController *storeController, QWidget *parent)
     : QMainWindow(parent), storeController(storeController) {
 
   // Create layout
   setupUi();
+
+  // Call store setup to hydrate system info
+  initStore();
 
   // Connect functionality
   setupConnections();
@@ -34,7 +37,7 @@ void MainWindow::onSetKey() {
   std::string user_input_value = set_value_input->text().toStdString();
 
   SetResult result =
-      storeController.handleSetKeyValue(user_input_key, user_input_value);
+      storeController->handleSetKeyValue(user_input_key, user_input_value);
 
   if (!result.success) {
     set_result->setText(QString::fromStdString(result.error));
@@ -42,8 +45,8 @@ void MainWindow::onSetKey() {
     set_result->setText("Success");
     set_timer_results->setText(
         QString::fromStdString(std::to_string(result.time_elapsed)) + "ms");
-    long curr_writes = std::stoi(total_writes->text().toStdString());
-    total_writes->setText(
+    long curr_writes = std::stoi(total_records->text().toStdString());
+    total_records->setText(
         QString::fromStdString(std::to_string(++curr_writes)));
   }
 
@@ -58,7 +61,7 @@ void MainWindow::onSetKey() {
 void MainWindow::onGetKey() {
   std::string user_input_key = get_key_input->text().toStdString();
 
-  GetResult result = storeController.handleGetValue(user_input_key);
+  GetResult result = storeController->handleGetValue(user_input_key);
   if (result.success) {
     get_result->setText(QString::fromStdString(result.value));
     get_timer_results->setText(
@@ -79,7 +82,7 @@ void MainWindow::onGetKey() {
 void MainWindow::onDeleteKey() {
   std::string user_input_key = set_key_input->text().toStdString();
 
-  DeleteResult result = storeController.handleDeleteKey(user_input_key);
+  DeleteResult result = storeController->handleDeleteKey(user_input_key);
   if (result.success) {
     set_result->setText("Deleted successfully");
     get_timer_results->setText(
@@ -91,14 +94,22 @@ void MainWindow::onDeleteKey() {
   set_key_input->clear();
 }
 
+void MainWindow::onCompactionComplete(const int segments_merged,
+                                      const uint16_t records_removed) {
+
+  uint32_t cur_writes = std::stoi(total_records->text().toStdString());
+  total_records->setText(
+      QString::fromStdString(std::to_string(cur_writes - records_removed)));
+}
+
 /**
  * @brief This handler is called when the seed entries button is pressed. Seeds
  * 1000 consecutive entries with the shape key<int> / value<int>
  */
 void MainWindow::onSeedEntries() {
-  BulkSetResult result = storeController.handleSeedEntries(1000);
-  long curr_writes = std::stoi(total_writes->text().toStdString());
-  total_writes->setText(QString::fromStdString(
+  BulkSetResult result = storeController->handleSeedEntries(1000);
+  long curr_writes = std::stoi(total_records->text().toStdString());
+  total_records->setText(QString::fromStdString(
       std::to_string(curr_writes + result.writes_completed)));
 }
 
@@ -131,10 +142,10 @@ QWidget *MainWindow::createLeftPanel() {
   auto *statsLayout = new QVBoxLayout(statsBox);
   auto *operation_outcome_layout = new QHBoxLayout();
   auto *operation_speed_layout = new QHBoxLayout();
-  auto *total_writes_layout = new QHBoxLayout();
+  auto *total_records_layout = new QHBoxLayout();
   statsLayout->addLayout(operation_outcome_layout);
   statsLayout->addLayout(operation_speed_layout);
-  statsLayout->addLayout(total_writes_layout);
+  statsLayout->addLayout(total_records_layout);
 
   operation_outcome_layout->addWidget(new QLabel("Result of last operation:"));
   set_result = new QLabel("N/A");
@@ -144,9 +155,9 @@ QWidget *MainWindow::createLeftPanel() {
   set_timer_results = new QLabel("N/A");
   operation_speed_layout->addWidget(set_timer_results);
 
-  total_writes_layout->addWidget(new QLabel("Total writes"));
-  total_writes = new QLabel("0");
-  total_writes_layout->addWidget(total_writes);
+  total_records_layout->addWidget(new QLabel("Total stored records:"));
+  total_records = new QLabel("0");
+  total_records_layout->addWidget(total_records);
 
   statsLayout->addStretch();
 
@@ -198,6 +209,12 @@ QWidget *MainWindow::createRightPanel() {
   return w;
 }
 
+void MainWindow::initStore() {
+  InitResult init_metadata = storeController->handleStoreInit();
+  total_records->setText(
+      QString::fromStdString(std::to_string(init_metadata.entry_count)));
+}
+
 /**
  * @brief This function is resposible for the creation of all gui widgets and
  * layouts.
@@ -237,4 +254,7 @@ void MainWindow::setupConnections() {
 
   connect(delete_submit_button, &QPushButton::clicked, this,
           &MainWindow::onDeleteKey);
+
+  connect(storeController, &StoreController::signalCompactionComplete, this,
+          &MainWindow::onCompactionComplete);
 }

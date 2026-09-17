@@ -22,7 +22,7 @@ int main(int argc, char *argv[]) {
 
   KV_Store store;
   StoreController storeController(&store);
-  MainWindow mainWindow(storeController);
+  MainWindow mainWindow(&storeController);
 
   mainWindow.show();
 
