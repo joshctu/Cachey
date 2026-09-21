@@ -1,10 +1,12 @@
 #include "store.hpp"
 #include "exceptions.hpp"
 #include "hash.hpp"
+#include "hint_manager.hpp"
 #include "istore_observer.hpp"
 #include "segment.hpp"
 #include "xxhash.h"
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -81,8 +83,8 @@ uint32_t KV_Store::generateNewSegment() {
   std::filesystem::path p =
       std::filesystem::path("./database/wal/segments") / file.str();
 
-  segment_map[segment_id] = std::make_unique<Segment>(
-      segment_id, MAX_SEGMENT_SIZE, p, hash_table.HASH_SEED);
+  segment_map[segment_id] =
+      std::make_unique<Segment>(segment_id, MAX_SEGMENT_SIZE, p);
 
   if (segment_map.size() % 20 == 0)
     compact();
@@ -113,12 +115,71 @@ bool KV_Store::isLatestRecord(const std::string &key, const uint32_t segment_id,
 void KV_Store::registerObserver(IStoreObserver *new_obs) { obs = new_obs; }
 
 /**
- * @brief Initialize the store with the existing log segments
+ * @brief Initialize the store with the existing log segments. Makes the
+ * decision to attempt boot from hints or WAL.
  *
  * @return InitResult object. Includes the number of total number of records
  * that were in the logs
  */
 InitResult KV_Store::init() {
+
+  HintManager hintManager;
+
+  if (hintManager.isValidHintFile()) {
+    InitResult hint_result = bootFromHints(hintManager);
+    if (hint_result.success) {
+      std::cout << "We successfully booted from hints" << std::endl;
+      return hint_result;
+    }
+  }
+
+  InitResult wal_result = bootFromWAL();
+  return wal_result;
+}
+
+InitResult KV_Store::bootFromHints(HintManager &hintManager) {
+  InitResult res;
+
+  Cursor c;
+  HintRecord rec;
+  int cur_segment_id = -1;
+
+  while (hintManager.nextValidHint(c, rec)) {
+    if (rec.segment_id != cur_segment_id) {
+      cur_segment_ids.push_back(rec.segment_id);
+      std::stringstream file;
+
+      file << std::setfill('0') << std::setw(6) << rec.segment_id << ".log";
+
+      std::filesystem::path file_path =
+          std::filesystem::path("./database/wal/segments") / file.str();
+      segment_map[rec.segment_id] = std::make_unique<Segment>(
+          rec.segment_id, MAX_SEGMENT_SIZE, file_path);
+      cur_segment_id = rec.segment_id;
+      if (!segment_map[rec.segment_id]->isSealed)
+        setActiveSegment(rec.segment_id);
+    }
+    encodeIndexAndSet(rec.key.data(), rec.segment_id, rec.file_offset);
+    res.entry_count += 1;
+  }
+  if (hintManager.validateChecksum()) {
+    next_segment_id.store(cur_segment_id + 1, std::memory_order_relaxed);
+  } else {
+    segment_map.clear();
+    cur_segment_ids.clear();
+    res.success = false;
+  }
+  return res;
+}
+
+/**
+ * @brief Boot the application using the full WAL
+ *
+ * @return An object containing total records found and whether the boot was
+ * successful.
+ *
+ */
+InitResult KV_Store::bootFromWAL() {
   std::vector<std::filesystem::path> log_files;
   for (const auto &entry :
        std::filesystem::directory_iterator("./database/wal/segments/")) {
@@ -129,7 +190,7 @@ InitResult KV_Store::init() {
   if (log_files.empty()) {
     uint32_t segment_id = generateNewSegment();
     setActiveSegment(segment_id);
-    return {0};
+    return {0, true};
   }
 
   uint32_t total_entries = 0;
@@ -146,8 +207,7 @@ InitResult KV_Store::init() {
     cur_segment_ids.push_back(segment_id);
     max_segment_id = std::max(max_segment_id, segment_id);
     segment_map[segment_id] = std::make_unique<Segment>(
-        segment_id, MAX_SEGMENT_SIZE, std::filesystem::path(file),
-        hash_table.HASH_SEED);
+        segment_id, MAX_SEGMENT_SIZE, std::filesystem::path(file));
 
     try {
       uint32_t segment_entries = segment_map[segment_id]->replay(
@@ -155,11 +215,10 @@ InitResult KV_Store::init() {
                  const uint32_t file_offset) {
             encodeIndexAndSet(key, segment_id, file_offset);
           });
-      //  std::cout << "Segment entries for id: " << segment_id << ": "
-      //          << segment_entries << std::endl;
       total_entries += segment_entries;
     } catch (ReadException &e) {
       std::cout << e.what() << std::endl;
+      return {total_entries, false};
     }
 
     if (!segment_map[segment_id]->isSealed)
@@ -168,7 +227,7 @@ InitResult KV_Store::init() {
 
   // We start operation with the 1 + the max segment id seen on startup.
   next_segment_id.store(max_segment_id + 1, std::memory_order_relaxed);
-  return {total_entries};
+  return {total_entries, true};
 }
 
 /**
@@ -420,4 +479,27 @@ void KV_Store::destroySegment(std::unique_ptr<Segment> &segment) {
     cur_segment_ids.erase(it);
 
   segment_map.erase(segment->id);
+}
+
+// Attempt to generate hints file on destruction
+KV_Store::~KV_Store() {
+
+  HintManager hintManager;
+
+  hintManager.resetHintFile();
+
+  std::sort(cur_segment_ids.begin(), cur_segment_ids.end());
+
+  for (auto &segment_id : cur_segment_ids) {
+    segment_map[segment_id]->iterateCurrentRecords(
+        [&hintManager](const std::string &key, const uint32_t segment_id,
+                       const uint32_t file_offset) {
+          return hintManager.writeHint(key, segment_id, file_offset);
+        },
+        [this](const std::string &key, const uint32_t segment_id,
+               const uint32_t file_offset) {
+          return isLatestRecord(key, segment_id, file_offset);
+        });
+  }
+  hintManager.writeFooter();
 }

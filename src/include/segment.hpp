@@ -66,8 +66,11 @@ public:
       std::function<bool(const std::string &key, const uint32_t segment_id,
                          const uint32_t file_offset)>;
 
+  using HintHandler =
+      std::function<void(const std::string &key, const uint32_t segment_id,
+                         const uint32_t file_offset)>;
+
 public:
-  uint8_t HASH_SEED;
   uint32_t id;
   uint32_t size;
   uint32_t used = 0;
@@ -76,13 +79,13 @@ public:
   std::filesystem::path file_path;
 
 public:
-  Segment(uint32_t id, uint32_t size, std::filesystem::path file_path,
-          uint8_t HASH_SEED);
+  Segment(uint32_t id, uint32_t size, std::filesystem::path file_path);
 
 public:
   uint32_t replay(const ReplayHandler &on_record);
-  uint64_t generateChecksum(const std::string &key, const std::string &value,
-                            const uint8_t operation);
+  uint64_t generateRecordChecksum(const std::string &key,
+                                  const std::string &value,
+                                  const uint8_t operation);
   void seal();
   bool verifyChecksum(const uint64_t &stored_checksum, const std::string &key,
                       const std::string &value, const uint8_t operation);
@@ -91,6 +94,8 @@ public:
   uint32_t readDeadBytes();
   int computeDeadBytes(const IndexHandler &is_latest_record);
   bool nextValidRecord(Cursor &c, SegmentRecordView &rec);
+  void iterateCurrentRecords(const HintHandler &commitRecord,
+                             const IndexHandler &is_latest_record);
 
   void append(const std::string &key, const std::string &value);
   std::optional<const std::string> read(const std::string &key,

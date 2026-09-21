@@ -6,9 +6,6 @@
 #include <unordered_map>
 
 class Hash_Table {
-public:
-  static constexpr uint8_t HASH_SEED = 0;
-
 private:
   std::unordered_map<uint64_t, uint64_t> lookup_table;
 

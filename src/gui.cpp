@@ -87,6 +87,9 @@ void MainWindow::onDeleteKey() {
     set_result->setText("Deleted successfully");
     get_timer_results->setText(
         QString::fromStdString(std::to_string(result.time_elapsed)));
+    long curr_writes = std::stoi(total_records->text().toStdString());
+    total_records->setText(
+        QString::fromStdString(std::to_string(++curr_writes)));
   } else {
     set_result->setText("Deletion failed");
     std::cout << result.error << std::endl;

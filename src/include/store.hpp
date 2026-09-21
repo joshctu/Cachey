@@ -1,6 +1,7 @@
 #pragma once
 
 #include "hash.hpp"
+#include "hint_manager.hpp"
 #include "istore_observer.hpp"
 #include "segment.hpp"
 #include <atomic>
@@ -13,7 +14,8 @@ constexpr int COMPACTION_THRESHOLD = 3;
 // Here is the shape of the init return. This is where metadata needed by
 // parents should be written on startup
 struct InitResult {
-  uint32_t entry_count;
+  uint32_t entry_count = 0;
+  bool success = true;
 };
 
 class KV_Store {
@@ -39,6 +41,8 @@ private:
 
 public:
   InitResult init();
+  InitResult bootFromWAL();
+  InitResult bootFromHints(HintManager &hintManager);
   void registerObserver(IStoreObserver *new_obs);
   void encodeIndexAndSet(const std::string &key, const uint32_t segment_id,
                          const uint32_t file_offset);
@@ -50,4 +54,5 @@ public:
   bool remove(const std::string &key);
   void compact();
   void destroySegment(std::unique_ptr<Segment> &segment);
+  ~KV_Store();
 };

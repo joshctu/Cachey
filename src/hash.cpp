@@ -1,4 +1,5 @@
 #include "hash.hpp"
+#include "constants.hpp"
 #include "xxhash.h"
 
 Hash_Table::Hash_Table() {}

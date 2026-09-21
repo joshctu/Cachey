@@ -1,7 +1,9 @@
 #include "segment.hpp"
+#include "constants.hpp"
 #include "exceptions.hpp"
 #include <fstream>
 #include <hash.hpp>
+#include <ios>
 #include <iostream>
 #include <optional>
 #include <string>
@@ -17,9 +19,8 @@
  * @param file_path Path to the log file this segment manages from project root
  * @param HASH_SEED The hash seed this segment should use to generate checksums.
  */
-Segment::Segment(uint32_t id, uint32_t size, std::filesystem::path file_path,
-                 uint8_t HASH_SEED)
-    : id(id), size(size), file_path(file_path), HASH_SEED(HASH_SEED) {
+Segment::Segment(uint32_t id, uint32_t size, std::filesystem::path file_path)
+    : id(id), size(size), file_path(file_path) {
   if (!std::filesystem::exists(file_path)) {
     std::ofstream create(file_path, std::ios::binary);
 
@@ -39,6 +40,24 @@ Segment::Segment(uint32_t id, uint32_t size, std::filesystem::path file_path,
     create.write(reinterpret_cast<char *>(&id), sizeof(id));
     create.close();
     return;
+  } else {
+    std::ifstream segment_file(file_path, std::ios::binary);
+    uint32_t magic;
+
+    segment_file.seekg(-static_cast<std::streamoff>(SERIALIZED_FOOTER_SIZE),
+                       std::ios::end);
+    segment_file.read(reinterpret_cast<char *>(&magic), sizeof(magic));
+
+    if (magic == MAGIC)
+      isSealed = true;
+
+    segment_file.read(reinterpret_cast<char *>(&used), sizeof(used));
+    segment_file.seekg(sizeof(decltype(SegmentFooter::dead_bytes)),
+                       std::ios::cur);
+    segment_file.read(reinterpret_cast<char *>(&entry_count),
+                      sizeof(entry_count));
+
+    segment_file.close();
   }
 }
 
@@ -61,6 +80,8 @@ uint32_t Segment::replay(const ReplayHandler &on_record) {
       static_cast<std::streamoff>(SERIALIZED_FOOTER_SIZE);
 
   std::streamoff offset = 0;
+  uint32_t records_read = 0;
+  bool bad_read = false;
 
   while (offset < file_limit) {
     uint32_t record_length;
@@ -112,32 +133,36 @@ uint32_t Segment::replay(const ReplayHandler &on_record) {
     segment_file.read(value.data(), value.size());
     bytes_read += segment_file.gcount();
 
+    /*If we hit a bad record we have to init the segment at the current offset
+      and number of records read. Any additional writes to the segment will
+      overwrite the bad record.
+    */
     if (!verifyChecksum(stored_checksum, key, value, operation)) {
-      segment_file.close();
-      throw ReadException("Invalid or not a record");
+      used = offset;
+      entry_count = records_read;
+      bad_read = true;
+      break;
+    } else {
+      on_record(key, id, offset);
+      records_read += 1;
+      offset += bytes_read;
     }
-
-    on_record(key, id, offset);
-    offset += bytes_read;
   }
 
   segment_file.clear();
   segment_file.seekg(file_limit, std::ios::beg);
   uint32_t magic;
-  uint32_t read_used;
-  uint16_t read_entry_count;
   segment_file.read(reinterpret_cast<char *>(&magic), sizeof(magic));
 
-  segment_file.read(reinterpret_cast<char *>(&read_used), sizeof(read_used));
+  if (!bad_read) {
+    segment_file.read(reinterpret_cast<char *>(&used), sizeof(used));
 
-  segment_file.seekg(sizeof(decltype(SegmentFooter::dead_bytes)),
-                     std::ios::cur);
+    segment_file.seekg(sizeof(decltype(SegmentFooter::dead_bytes)),
+                       std::ios::cur);
 
-  segment_file.read(reinterpret_cast<char *>(&read_entry_count),
-                    sizeof(read_entry_count));
-
-  used = read_used;
-  entry_count = read_entry_count;
+    segment_file.read(reinterpret_cast<char *>(&entry_count),
+                      sizeof(entry_count));
+  }
 
   if (magic == MAGIC)
     isSealed = true;
@@ -154,9 +179,9 @@ uint32_t Segment::replay(const ReplayHandler &on_record) {
  *
  * @return The resulting hash value
  */
-uint64_t Segment::generateChecksum(const std::string &key,
-                                   const std::string &value,
-                                   uint8_t operation) {
+uint64_t Segment::generateRecordChecksum(const std::string &key,
+                                         const std::string &value,
+                                         uint8_t operation) {
   XXH64_state_t *const state = XXH64_createState();
 
   XXH64_reset(state, HASH_SEED);
@@ -192,7 +217,7 @@ bool Segment::verifyChecksum(const uint64_t &stored_checksum,
                              const std::string &key, const std::string &value,
                              const uint8_t operation) {
 
-  uint64_t computed_checksum = generateChecksum(key, value, operation);
+  uint64_t computed_checksum = generateRecordChecksum(key, value, operation);
   return computed_checksum == stored_checksum;
 }
 
@@ -283,6 +308,45 @@ bool Segment::nextValidRecord(Cursor &c, SegmentRecordView &rec) {
   return true;
 }
 
+void Segment::iterateCurrentRecords(const HintHandler &commitRecord,
+                                    const IndexHandler &is_latest_record) {
+
+  std::ifstream segment_file(file_path, std::ios::binary);
+
+  std::streamoff offset = 0;
+
+  while (offset < used) {
+
+    uint32_t record_length;
+    uint32_t key_size;
+    uint32_t value_size;
+    std::string key;
+
+    segment_file.read(reinterpret_cast<char *>(&record_length),
+                      sizeof(record_length));
+    segment_file.seekg(sizeof(decltype(SegmentEntryHeader::checksum)),
+                       std::ios::cur);
+
+    segment_file.read(reinterpret_cast<char *>(&key_size), sizeof(key_size));
+    segment_file.read(reinterpret_cast<char *>(&value_size),
+                      sizeof(value_size));
+    segment_file.seekg(sizeof(decltype(SegmentEntryHeader::operation)),
+                       std::ios::cur);
+
+    key.resize(key_size);
+    segment_file.read(reinterpret_cast<char *>(key.data()), key_size);
+    segment_file.seekg(value_size, std::ios::cur);
+
+    if (is_latest_record(key.data(), id, offset)) {
+      commitRecord(key, id, offset);
+    }
+
+    offset += record_length;
+  }
+
+  segment_file.close();
+}
+
 /**
  * @brief Write a key/value to pair to the end of the segment
  *
@@ -294,7 +358,7 @@ void Segment::append(const std::string &key, const std::string &value) {
   SegmentEntryHeader header(key.size(), value.size(), 0x20);
   uint32_t record_length = sizeof(decltype(SegmentRecord::length)) +
                            SERIALIZED_HEADER_SIZE + key.size() + value.size();
-  header.checksum = generateChecksum(key, value, 0x20);
+  header.checksum = generateRecordChecksum(key, value, 0x20);
   std::fstream file(file_path, std::ios::in | std::ios::out | std::ios::binary);
 
   file.seekp(used);
@@ -405,7 +469,7 @@ void Segment::remove(const std::string &key) {
   SegmentEntryHeader header(key.size(), 0, 0x30);
   uint32_t record_length = sizeof(decltype(SegmentRecord::length)) +
                            SERIALIZED_HEADER_SIZE + key.size();
-  header.checksum = generateChecksum(key, "", 0x30);
+  header.checksum = generateRecordChecksum(key, "", 0x30);
 
   std::fstream file(file_path, std::ios::in | std::ios::out | std::ios::binary);
 
@@ -420,9 +484,10 @@ void Segment::remove(const std::string &key) {
   file.write(reinterpret_cast<const char *>(&header.operation),
              sizeof(header.operation));
   file.write(key.data(), key.size());
-  used += record_length;
 
+  used += record_length;
   entry_count += 1;
+
   std::streamoff footer_offset =
       static_cast<std::streamoff>(MAX_SEGMENT_SIZE) -
       static_cast<std::streamoff>(SERIALIZED_FOOTER_SIZE);
