@@ -71,8 +71,6 @@ void MainWindow::onGetKey() {
     get_result->setText(QString::fromStdString(result.value));
     get_timer_results->setText(
         QString::fromStdString(std::to_string(result.time_elapsed)) + "ms");
-    dead_bytes_results->setText(
-        QString::fromStdString(std::to_string(result.dead_bytes)));
   } else {
     get_result->setText(QString::fromStdString(result.error));
   }
@@ -208,10 +206,6 @@ QWidget *MainWindow::createRightPanel() {
   operation_speed_layout->addWidget(new QLabel("Last operation completed in:"));
   get_timer_results = new QLabel("N/A");
   operation_speed_layout->addWidget(get_timer_results);
-
-  dead_bytes_outcome_layout->addWidget(new QLabel("Dead bytes in this file:"));
-  dead_bytes_results = new QLabel("N/A");
-  dead_bytes_outcome_layout->addWidget(dead_bytes_results);
 
   layout->addWidget(statsBox);
   return w;

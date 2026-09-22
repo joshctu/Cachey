@@ -28,7 +28,6 @@ private:
   QLineEdit *get_key_input;
   QLabel *get_result;
   QLabel *get_timer_results;
-  QLabel *dead_bytes_results;
 
   QLabel *total_keys;
   QLabel *total_records;

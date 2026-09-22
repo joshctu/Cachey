@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <qelapsedtimer.h>
 #include <string>
-#include <tuple>
 
 StoreController::StoreController(KV_Store *store) : store(store) {
   value_ticker = 0;
@@ -54,12 +53,11 @@ GetResult StoreController::handleGetValue(std::string &key) {
   try {
     QElapsedTimer timer;
     timer.start();
-    std::optional<std::tuple<std::string, uint32_t>> result = store->get(key);
+    std::optional<const std::string> result = store->get(key);
     if (result) {
       double time = timer.nsecsElapsed() * 0.000001;
-      std::tuple<std::string, uint32_t> valid_result = *result;
-      return {true, "", time, std::get<0>(valid_result),
-              std::get<1>(valid_result)};
+      const std::string valid_result = *result;
+      return {true, "", time, valid_result};
     }
 
   } catch (ReadException &e) {

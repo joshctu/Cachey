@@ -1,0 +1,6 @@
+set(__QT_DEPLOY_TARGET_kv_store_lib_FILE /home/lean/cpp/kv_store/libkv_store_lib.a)
+set(__QT_DEPLOY_TARGET_kv_store_lib_TYPE STATIC_LIBRARY)
+set(__QT_DEPLOY_TARGET_kv_store_init_FILE /home/lean/cpp/kv_store/kv_store_init)
+set(__QT_DEPLOY_TARGET_kv_store_init_TYPE EXECUTABLE)
+set(__QT_DEPLOY_TARGET_tests_FILE /home/lean/cpp/kv_store/tests)
+set(__QT_DEPLOY_TARGET_tests_TYPE EXECUTABLE)

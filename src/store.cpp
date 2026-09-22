@@ -22,7 +22,12 @@
  *
  *
  */
-KV_Store::KV_Store() {}
+KV_Store::KV_Store(ProjectConfig &config)
+    : root_dir(config.root_dir),
+      compaction_threshold(config.compaction_threshold),
+      max_segment_size(config.max_segment_size) {
+  std::filesystem::create_directories(root_dir / "database/wal/segments");
+}
 
 /**
  * @brief Sets a new active segment id
@@ -52,7 +57,7 @@ uint32_t KV_Store::generateSegmentId() {
 uint32_t KV_Store::readSegmentId(const std::filesystem::path &path) {
   std::ifstream segment_file(path, std::ios::in | std::ios::binary);
 
-  std::streamoff offset = static_cast<std::streamoff>(MAX_SEGMENT_SIZE) -
+  std::streamoff offset = static_cast<std::streamoff>(max_segment_size) -
                           static_cast<std::streamoff>(SERIALIZED_FOOTER_SIZE);
 
   offset += sizeof(decltype(SegmentFooter::magic)) +
@@ -81,10 +86,10 @@ uint32_t KV_Store::generateNewSegment() {
   file << std::setfill('0') << std::setw(6) << segment_id << ".log";
 
   std::filesystem::path p =
-      std::filesystem::path("./database/wal/segments") / file.str();
+      std::filesystem::path(root_dir / "database/wal/segments") / file.str();
 
   segment_map[segment_id] =
-      std::make_unique<Segment>(segment_id, MAX_SEGMENT_SIZE, p);
+      std::make_unique<Segment>(segment_id, max_segment_size, p);
 
   if (segment_map.size() % 20 == 0)
     compact();
@@ -123,18 +128,17 @@ void KV_Store::registerObserver(IStoreObserver *new_obs) { obs = new_obs; }
  */
 InitResult KV_Store::init() {
 
-  HintManager hintManager;
+  InitResult res;
+  HintManager hintManager(root_dir);
 
-  if (hintManager.isValidHintFile()) {
-    InitResult hint_result = bootFromHints(hintManager);
-    if (hint_result.success) {
-      std::cout << "We successfully booted from hints" << std::endl;
-      return hint_result;
-    }
-  }
+  if (hintManager.isValidHintFile())
+    res = bootFromHints(hintManager);
 
-  InitResult wal_result = bootFromWAL();
-  return wal_result;
+  if (!res.success)
+    res = bootFromWAL();
+
+  hintManager.removeHintDir();
+  return res;
 }
 
 InitResult KV_Store::bootFromHints(HintManager &hintManager) {
@@ -152,9 +156,10 @@ InitResult KV_Store::bootFromHints(HintManager &hintManager) {
       file << std::setfill('0') << std::setw(6) << rec.segment_id << ".log";
 
       std::filesystem::path file_path =
-          std::filesystem::path("./database/wal/segments") / file.str();
+          std::filesystem::path(root_dir / "database/wal/segments") /
+          file.str();
       segment_map[rec.segment_id] = std::make_unique<Segment>(
-          rec.segment_id, MAX_SEGMENT_SIZE, file_path);
+          rec.segment_id, max_segment_size, file_path);
       cur_segment_id = rec.segment_id;
       if (!segment_map[rec.segment_id]->isSealed)
         setActiveSegment(rec.segment_id);
@@ -181,8 +186,8 @@ InitResult KV_Store::bootFromHints(HintManager &hintManager) {
  */
 InitResult KV_Store::bootFromWAL() {
   std::vector<std::filesystem::path> log_files;
-  for (const auto &entry :
-       std::filesystem::directory_iterator("./database/wal/segments/")) {
+  for (const auto &entry : std::filesystem::directory_iterator(
+           root_dir / "database/wal/segments/")) {
     if (entry.path().extension() == ".log")
       log_files.push_back(entry.path());
   }
@@ -207,7 +212,7 @@ InitResult KV_Store::bootFromWAL() {
     cur_segment_ids.push_back(segment_id);
     max_segment_id = std::max(max_segment_id, segment_id);
     segment_map[segment_id] = std::make_unique<Segment>(
-        segment_id, MAX_SEGMENT_SIZE, std::filesystem::path(file));
+        segment_id, max_segment_size, std::filesystem::path(file));
 
     try {
       uint32_t segment_entries = segment_map[segment_id]->replay(
@@ -287,8 +292,7 @@ StoreSetResult KV_Store::set(std::string &key, std::string &value) {
  * @return If the key is not found, returns nullopt
  *
  */
-std::optional<std::tuple<const std::string, const uint32_t>>
-KV_Store::get(const std::string &key) {
+std::optional<const std::string> KV_Store::get(const std::string &key) {
   std::optional<uint64_t> location = hash_table.lookupHash(key);
 
   if (not location) {
@@ -304,13 +308,12 @@ KV_Store::get(const std::string &key) {
   if (it != segment_map.end()) {
     auto &segment = it->second;
     auto value = segment->read(key, file_offset);
-    auto dead_bytes = segment->readDeadBytes();
 
     if (not value)
       return std::nullopt;
 
     std::string valid_value = *value;
-    return std::tuple(valid_value, dead_bytes);
+    return valid_value;
   }
   return std::nullopt;
 };
@@ -400,17 +403,17 @@ void KV_Store::compact() {
     if (segment->isSealed) {
       int dead_bytes = segment->readDeadBytes();
 
-      int dead_bytes_percent = ((float)dead_bytes / MAX_SEGMENT_SIZE) * 100;
+      int dead_bytes_percent = ((float)dead_bytes / max_segment_size) * 100;
 
       if (dead_bytes_percent > 50) {
         candidates.push_back(segment_id);
-        if (candidates.size() == COMPACTION_THRESHOLD)
+        if (candidates.size() == compaction_threshold)
           break;
       }
     }
   }
 
-  if (candidates.size() != COMPACTION_THRESHOLD) {
+  if (candidates.size() != compaction_threshold) {
     is_compacting = false;
     return;
   }
@@ -487,9 +490,7 @@ void KV_Store::destroySegment(std::unique_ptr<Segment> &segment) {
 // Attempt to generate hints file on destruction
 KV_Store::~KV_Store() {
 
-  HintManager hintManager;
-
-  hintManager.resetHintFile();
+  HintManager hintManager(root_dir);
 
   std::sort(cur_segment_ids.begin(), cur_segment_ids.end());
 

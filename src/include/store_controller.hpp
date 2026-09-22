@@ -25,8 +25,6 @@ struct GetResult {
   std::string error;
   double time_elapsed;
   std::string value;
-  // temp dev field
-  uint32_t dead_bytes;
 };
 
 struct DeleteResult {

@@ -9,23 +9,26 @@ set(CMAKE_AUTORCC ON)
 
 find_package(xxHash CONFIG REQUIRED)
 find_package(Qt6 REQUIRED COMPONENTS Widgets Core)
-
 find_package(Catch2 3 REQUIRED)
+
 qt_standard_project_setup()
 
 add_library(kv_store_lib src/store.cpp src/segment.cpp src/hash.cpp src/store_controller.cpp src/hint_manager.cpp src/include/store_controller.hpp)
 
 qt_add_executable(kv_store_init src/main.cpp src/gui.cpp src/include/gui.hpp)
 
-add_executable(tests tests/test_segment.cpp)
+add_executable(tests tests/test_segment.cpp tests/test_store.cpp)
+set_target_properties(tests PROPERTIES AUTOMOC OFF)
 
 target_link_libraries(kv_store_lib PUBLIC xxHash::xxhash)
 target_link_libraries(kv_store_lib PUBLIC Qt6::Widgets)
 target_link_libraries(kv_store_lib PUBLIC Qt6::Core)
-
-target_link_libraries(kv_store_init PRIVATE kv_store_lib)
-
-target_link_libraries(tests PRIVATE kv_store_lib Catch2::Catch2WithMain)
+target_compile_definitions(kv_store_lib PUBLIC DEFAULT_ROOT="${CMAKE_SOURCE_DIR}")
 
 target_include_directories(kv_store_lib PUBLIC ${CMAKE_SOURCE_DIR}/src/include)
+
+target_link_libraries(kv_store_init PRIVATE kv_store_lib)
+target_link_libraries(tests PUBLIC kv_store_lib Catch2::Catch2WithMain)
+
+
 

@@ -9,13 +9,21 @@
 #include <string>
 #include <unordered_map>
 
-constexpr int COMPACTION_THRESHOLD = 3;
+struct ProjectConfig {
+  std::filesystem::path root_dir = DEFAULT_ROOT;
+  int compaction_threshold = 3;
+  uint32_t max_segment_size = 256;
+};
 
 // Here is the shape of the init return. This is where metadata needed by
 // parents should be written on startup
+
 struct InitResult {
   uint32_t entry_count = 0;
-  bool success = true;
+
+  // False by default so we can try different boot methods until we get a
+  // successful boot
+  bool success = false;
 };
 
 // Making this a struct for now with the thought that there
@@ -29,20 +37,24 @@ struct StoreSetResult {
 class KV_Store {
 
 private:
-  std::unordered_map<uint32_t, std::unique_ptr<Segment>> segment_map;
-  std::vector<uint32_t> cur_segment_ids;
-  uint32_t active_id;
   Hash_Table hash_table;
   std::atomic<uint32_t> next_segment_id{1};
   // Register an observer to handle store events in other parts of program
   IStoreObserver *obs = nullptr;
+  int compaction_threshold;
+  std::filesystem::path root_dir;
+  uint32_t max_segment_size;
   bool is_compacting = false;
 
 public:
-  KV_Store();
+  std::vector<uint32_t> cur_segment_ids;
+  std::unordered_map<uint32_t, std::unique_ptr<Segment>> segment_map;
+  uint32_t active_id;
+
+public:
+  KV_Store(ProjectConfig &config);
 
 private:
-  uint32_t generateNewSegment();
   void setActiveSegment(const uint32_t segment_id);
   uint32_t generateSegmentId();
   uint32_t readSegmentId(const std::filesystem::path &file);
@@ -52,13 +64,13 @@ public:
   InitResult bootFromWAL();
   InitResult bootFromHints(HintManager &hintManager);
   void registerObserver(IStoreObserver *new_obs);
+  uint32_t generateNewSegment();
   void encodeIndexAndSet(const std::string &key, const uint32_t segment_id,
                          const uint32_t file_offset);
   bool isLatestRecord(const std::string &key, const uint32_t segment_id,
                       const uint32_t file_offset);
   StoreSetResult set(std::string &key, std::string &value);
-  std::optional<std::tuple<const std::string, const uint32_t>>
-  get(const std::string &key);
+  std::optional<const std::string> get(const std::string &key);
   bool remove(const std::string &key);
   void compact();
   void destroySegment(std::unique_ptr<Segment> &segment);

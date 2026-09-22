@@ -32,10 +32,10 @@ private:
   XXH64_state_t *const state = XXH64_createState();
 
 public:
-  HintManager();
+  HintManager(std::filesystem::path root_path);
 
   bool validateChecksum();
-  void resetHintFile();
+  void removeHintDir();
   bool nextValidHint(Cursor &c, HintRecord &rec);
   bool isValidHintFile();
   void writeHint(const std::string &key, const uint32_t &segment_id,

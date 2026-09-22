@@ -1,13 +1,14 @@
 #include "hint_manager.hpp"
 #include "constants.hpp"
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 
-HintManager::HintManager() {
-  std::filesystem::create_directories("./database/hints/");
-  file_path = std::filesystem::path("./database/hints/hint.txt");
+HintManager::HintManager(std::filesystem::path root_path) {
+  std::filesystem::create_directories(root_path / "database/hints/");
+  file_path = std::filesystem::path(root_path / "database/hints/hint.txt");
 
   if (std::filesystem::exists(file_path)) {
     std::ifstream hint_file(file_path, std::ios::in | std::ios::binary);
@@ -22,14 +23,7 @@ HintManager::HintManager() {
   XXH64_reset(state, HASH_SEED);
 };
 
-void HintManager::resetHintFile() {
-  std::ofstream hint_file(file_path, std::ios::trunc);
-  hint_file.close();
-
-  file_size = 0;
-  file_ptr = 0;
-  record_count = 0;
-}
+void HintManager::removeHintDir() { std::filesystem::remove(file_path); }
 
 /**
  * @brief This function provides a quick way to determine if a boot from the

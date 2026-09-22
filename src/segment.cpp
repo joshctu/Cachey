@@ -25,7 +25,7 @@ Segment::Segment(uint32_t id, uint32_t size, std::filesystem::path file_path)
     std::ofstream create(file_path, std::ios::binary);
 
     std::streamoff footer_offset =
-        static_cast<std::streamoff>(MAX_SEGMENT_SIZE) -
+        static_cast<std::streamoff>(size) -
         static_cast<std::streamoff>(SERIALIZED_FOOTER_SIZE);
 
     footer_offset += sizeof(decltype(SegmentFooter::magic)) +
@@ -76,7 +76,7 @@ uint32_t Segment::replay(const ReplayHandler &on_record) {
   }
 
   std::streamoff file_limit =
-      static_cast<std::streamoff>(MAX_SEGMENT_SIZE) -
+      static_cast<std::streamoff>(size) -
       static_cast<std::streamoff>(SERIALIZED_FOOTER_SIZE);
 
   std::streamoff offset = 0;
@@ -229,8 +229,7 @@ bool Segment::verifyChecksum(const uint64_t &stored_checksum,
  * @return True is the record can be added, false otherwise
  */
 bool Segment::canAppend(uint32_t const entry_size) {
-  return !isSealed &&
-         entry_size <= MAX_SEGMENT_SIZE - used - SERIALIZED_FOOTER_SIZE;
+  return !isSealed && entry_size <= size - used - SERIALIZED_FOOTER_SIZE;
 }
 
 /**
@@ -250,7 +249,7 @@ void Segment::invalidateBytes(const uint32_t file_offset) {
 
   // footer start
   std::streamoff footer_offset =
-      static_cast<std::streamoff>(MAX_SEGMENT_SIZE) -
+      static_cast<std::streamoff>(size) -
       static_cast<std::streamoff>(SERIALIZED_FOOTER_SIZE);
 
   // skip to dead bytes
@@ -378,7 +377,7 @@ void Segment::append(const std::string &key, const std::string &value) {
   entry_count += 1;
 
   std::streamoff footer_offset =
-      static_cast<std::streamoff>(MAX_SEGMENT_SIZE) -
+      static_cast<std::streamoff>(size) -
       static_cast<std::streamoff>(SERIALIZED_FOOTER_SIZE);
   file.seekp(footer_offset, std::ios::beg);
   // Skip magic
@@ -446,7 +445,7 @@ uint32_t Segment::readDeadBytes() {
   std::fstream file(file_path, std::ios::in | std::ios::out | std::ios::binary);
 
   std::streamoff footer_offset =
-      static_cast<std::streamoff>(MAX_SEGMENT_SIZE) -
+      static_cast<std::streamoff>(size) -
       static_cast<std::streamoff>(SERIALIZED_FOOTER_SIZE);
 
   uint32_t dead_bytes;
@@ -489,7 +488,7 @@ void Segment::remove(const std::string &key) {
   entry_count += 1;
 
   std::streamoff footer_offset =
-      static_cast<std::streamoff>(MAX_SEGMENT_SIZE) -
+      static_cast<std::streamoff>(size) -
       static_cast<std::streamoff>(SERIALIZED_FOOTER_SIZE);
   file.seekp(footer_offset);
   // Skip magic
@@ -506,7 +505,7 @@ void Segment::remove(const std::string &key) {
 void Segment::seal() {
   std::fstream file(file_path, std::ios::in | std::ios::out | std::ios::binary);
 
-  std::streamoff offset = static_cast<std::streamoff>(MAX_SEGMENT_SIZE) -
+  std::streamoff offset = static_cast<std::streamoff>(size) -
                           static_cast<std::streamoff>(SERIALIZED_FOOTER_SIZE);
   file.seekp(offset, std::ios::beg);
   file.write(reinterpret_cast<const char *>(&MAGIC), sizeof(MAGIC));
