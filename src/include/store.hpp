@@ -18,6 +18,14 @@ struct InitResult {
   bool success = true;
 };
 
+// Making this a struct for now with the thought that there
+// might be more information to return from this function in the future.
+//
+// This is a candidate for removal in favor of a single value return
+struct StoreSetResult {
+  bool unique_write_completed = true;
+};
+
 class KV_Store {
 
 private:
@@ -48,7 +56,7 @@ public:
                          const uint32_t file_offset);
   bool isLatestRecord(const std::string &key, const uint32_t segment_id,
                       const uint32_t file_offset);
-  void set(std::string &key, std::string &value);
+  StoreSetResult set(std::string &key, std::string &value);
   std::optional<std::tuple<const std::string, const uint32_t>>
   get(const std::string &key);
   bool remove(const std::string &key);

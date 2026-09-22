@@ -23,7 +23,6 @@ private:
   QLabel *set_result;
   QLabel *set_timer_results;
   QPushButton *seed_entries_button;
-  QLabel *total_records;
 
   QPushButton *get_submit_button;
   QLineEdit *get_key_input;
@@ -31,8 +30,12 @@ private:
   QLabel *get_timer_results;
   QLabel *dead_bytes_results;
 
+  QLabel *total_keys;
+  QLabel *total_records;
+
   QWidget *createLeftPanel();
   QWidget *createRightPanel();
+  QWidget *createBottomPanel();
   void onSetKey();
   void onGetKey();
   void onDeleteKey();

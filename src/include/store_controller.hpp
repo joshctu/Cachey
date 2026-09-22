@@ -8,14 +8,16 @@ struct SetResult {
   bool success;
   std::string error;
   double time_elapsed;
+  bool unique_write;
 };
 
 struct BulkSetResult {
-  bool success;
-  std::string error;
-  long writes_requested;
-  long writes_completed;
-  double avg_time_per_write;
+  bool success = true;
+  std::string error = "";
+  long writes_requested = 0;
+  long writes_completed = 0;
+  long unique_writes_completed = 0;
+  double avg_time_per_write = 0;
 };
 
 struct GetResult {

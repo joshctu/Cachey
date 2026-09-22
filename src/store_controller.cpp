@@ -1,5 +1,6 @@
 #include "store_controller.hpp"
 #include "exceptions.hpp"
+#include "store.hpp"
 #include <QElapsedTimer>
 #include <cstdint>
 #include <qelapsedtimer.h>
@@ -36,10 +37,10 @@ SetResult StoreController::handleSetKeyValue(std::string &key,
 
   QElapsedTimer timer;
   timer.start();
-  store->set(key, value);
+  StoreSetResult res = store->set(key, value);
 
   double time = timer.nsecsElapsed() * 0.000001;
-  return {true, "", time};
+  return {true, "", time, res.unique_write_completed};
 }
 
 GetResult StoreController::handleGetValue(std::string &key) {
@@ -91,22 +92,26 @@ DeleteResult StoreController::handleDeleteKey(std::string &key) {
 
 BulkSetResult StoreController::handleSeedEntries(int number_of_entries) {
   QElapsedTimer timer;
-  long writes_completed = 0;
   double avg_time_accumulator = 0;
+
+  BulkSetResult res;
+  res.writes_requested = number_of_entries;
 
   for (int i = 0; i < number_of_entries; ++i) {
     std::string key = "key" + std::to_string(i);
     std::string value = "value" + std::to_string(value_ticker);
 
     timer.restart();
-    store->set(key, value);
-    writes_completed += 1;
+    StoreSetResult store_res = store->set(key, value);
+    res.writes_completed += 1;
+    if (store_res.unique_write_completed)
+      res.unique_writes_completed += 1;
     avg_time_accumulator += timer.nsecsElapsed();
     value_ticker += 1;
   }
 
-  return {true, "", number_of_entries, writes_completed,
-          (avg_time_accumulator / writes_completed) * 0.000001};
+  res.avg_time_per_write = avg_time_accumulator / res.writes_completed;
+  return res;
 }
 
 StoreController::~StoreController() = default;

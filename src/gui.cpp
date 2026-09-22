@@ -48,6 +48,11 @@ void MainWindow::onSetKey() {
     long curr_writes = std::stoi(total_records->text().toStdString());
     total_records->setText(
         QString::fromStdString(std::to_string(++curr_writes)));
+
+    if (result.unique_write) {
+      long curr_keys = std::stoi(total_keys->text().toStdString());
+      total_keys->setText(QString::fromStdString(std::to_string(++curr_keys)));
+    }
   }
 
   set_key_input->clear();
@@ -85,11 +90,13 @@ void MainWindow::onDeleteKey() {
   DeleteResult result = storeController->handleDeleteKey(user_input_key);
   if (result.success) {
     set_result->setText("Deleted successfully");
-    get_timer_results->setText(
+    set_timer_results->setText(
         QString::fromStdString(std::to_string(result.time_elapsed)));
     long curr_writes = std::stoi(total_records->text().toStdString());
     total_records->setText(
         QString::fromStdString(std::to_string(++curr_writes)));
+    long curr_keys = std::stoi(total_keys->text().toStdString());
+    total_keys->setText(QString::fromStdString(std::to_string(--curr_keys)));
   } else {
     set_result->setText("Deletion failed");
     std::cout << result.error << std::endl;
@@ -114,6 +121,10 @@ void MainWindow::onSeedEntries() {
   long curr_writes = std::stoi(total_records->text().toStdString());
   total_records->setText(QString::fromStdString(
       std::to_string(curr_writes + result.writes_completed)));
+
+  long curr_keys = std::stoi(total_keys->text().toStdString());
+  total_keys->setText(QString::fromStdString(
+      std::to_string(curr_keys + result.unique_writes_completed)));
 }
 
 /**
@@ -141,14 +152,12 @@ QWidget *MainWindow::createLeftPanel() {
   buttons->addWidget(seed_entries_button);
   opLayout->addLayout(buttons);
 
-  auto *statsBox = new QGroupBox("Set Operation Statistics");
+  auto *statsBox = new QGroupBox("Set/Delete Operation Statistics");
   auto *statsLayout = new QVBoxLayout(statsBox);
   auto *operation_outcome_layout = new QHBoxLayout();
   auto *operation_speed_layout = new QHBoxLayout();
-  auto *total_records_layout = new QHBoxLayout();
   statsLayout->addLayout(operation_outcome_layout);
   statsLayout->addLayout(operation_speed_layout);
-  statsLayout->addLayout(total_records_layout);
 
   operation_outcome_layout->addWidget(new QLabel("Result of last operation:"));
   set_result = new QLabel("N/A");
@@ -157,10 +166,6 @@ QWidget *MainWindow::createLeftPanel() {
   operation_speed_layout->addWidget(new QLabel("Last operation completed in:"));
   set_timer_results = new QLabel("N/A");
   operation_speed_layout->addWidget(set_timer_results);
-
-  total_records_layout->addWidget(new QLabel("Total stored records:"));
-  total_records = new QLabel("0");
-  total_records_layout->addWidget(total_records);
 
   statsLayout->addStretch();
 
@@ -212,6 +217,27 @@ QWidget *MainWindow::createRightPanel() {
   return w;
 }
 
+QWidget *MainWindow::createBottomPanel() {
+  QWidget *bottom = new QWidget;
+
+  auto *bottomLayout = new QHBoxLayout(bottom);
+  auto *total_records_layout = new QHBoxLayout();
+  auto *total_valid_records_layout = new QHBoxLayout();
+
+  bottomLayout->addLayout(total_records_layout);
+  bottomLayout->addLayout(total_valid_records_layout);
+
+  total_records_layout->addWidget(new QLabel("Total stored records in db: "));
+  total_records = new QLabel("0");
+  total_records_layout->addWidget(total_records);
+
+  total_valid_records_layout->addWidget(new QLabel("Total keys stored in db:"));
+  total_keys = new QLabel("0");
+  total_valid_records_layout->addWidget(total_keys);
+
+  return bottom;
+}
+
 void MainWindow::initStore() {
   InitResult init_metadata = storeController->handleStoreInit();
   total_records->setText(
@@ -231,13 +257,9 @@ void MainWindow::setupUi() {
   auto *h = new QHBoxLayout;
   h->addWidget(createLeftPanel());
   h->addWidget(createRightPanel());
-  mainV->addLayout(h);
 
-  // bottom area
-  auto *bottom = new QWidget;
-  auto *bottomLayout = new QHBoxLayout(bottom);
-  bottomLayout->addWidget(new QLabel("Test of bottom text"));
-  mainV->addWidget(bottom);
+  mainV->addLayout(h);
+  mainV->addWidget(createBottomPanel());
 }
 
 /**

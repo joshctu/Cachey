@@ -236,9 +236,10 @@ InitResult KV_Store::bootFromWAL() {
  * @param value The value to assign to the given key
  *
  */
-void KV_Store::set(std::string &key, std::string &value) {
+StoreSetResult KV_Store::set(std::string &key, std::string &value) {
 
   std::optional<uint64_t> location = hash_table.lookupHash(key);
+  StoreSetResult res;
 
   if (location) {
     uint64_t valid_location = *location;
@@ -250,6 +251,7 @@ void KV_Store::set(std::string &key, std::string &value) {
     if (it != segment_map.end()) {
       auto &segment = it->second;
       segment->invalidateBytes(old_file_offset);
+      res.unique_write_completed = false;
     }
   }
 
@@ -274,6 +276,7 @@ void KV_Store::set(std::string &key, std::string &value) {
                                active_segment->file_path.stem().string()));
 
   hash_table.createIndex(key, encode_offset);
+  return res;
 }
 
 /**
