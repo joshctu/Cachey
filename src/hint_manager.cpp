@@ -14,16 +14,18 @@ HintManager::HintManager(std::filesystem::path root_path) {
     std::ifstream hint_file(file_path, std::ios::in | std::ios::binary);
     hint_file.seekg(-(sizeof(uint64_t) * 3), std::ios::end);
     hint_file.read(reinterpret_cast<char *>(&file_size), sizeof(file_size));
-    std::cout << "file size of hints on startup: " << file_size << std::endl;
     hint_file.read(reinterpret_cast<char *>(&record_count),
                    sizeof(record_count));
 
+    hint_file.close();
+  } else {
+    std::ofstream hint_file(file_path);
     hint_file.close();
   }
   XXH64_reset(state, HASH_SEED);
 };
 
-void HintManager::removeHintDir() { std::filesystem::remove(file_path); }
+void HintManager::removeHintFile() { std::filesystem::remove_all(file_path); }
 
 /**
  * @brief This function provides a quick way to determine if a boot from the
@@ -44,6 +46,8 @@ void HintManager::writeHint(const std::string &key, const uint32_t &segment_id,
                          std::ios::in | std::ios::out | std::ios::binary);
 
   if (!hint_file.is_open()) {
+    std::cout << "hint file not open" << std::endl;
+
     return;
   }
 

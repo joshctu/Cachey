@@ -35,7 +35,7 @@ public:
   HintManager(std::filesystem::path root_path);
 
   bool validateChecksum();
-  void removeHintDir();
+  void removeHintFile();
   bool nextValidHint(Cursor &c, HintRecord &rec);
   bool isValidHintFile();
   void writeHint(const std::string &key, const uint32_t &segment_id,

@@ -73,6 +73,13 @@ uint32_t KV_Store::readSegmentId(const std::filesystem::path &path) {
 }
 
 /**
+ * @brief Get the current number of segments in memory
+ *
+ * @return The number of segments in memory
+ */
+long KV_Store::getSegmentCount() { return cur_segment_ids.size(); }
+
+/**
  * @brief generate a new log segment in sequential order
  *
  * @return The segment_id of the new segment.
@@ -137,7 +144,7 @@ InitResult KV_Store::init() {
   if (!res.success)
     res = bootFromWAL();
 
-  hintManager.removeHintDir();
+  hintManager.removeHintFile();
   return res;
 }
 
@@ -169,10 +176,10 @@ InitResult KV_Store::bootFromHints(HintManager &hintManager) {
   }
   if (hintManager.validateChecksum()) {
     next_segment_id.store(cur_segment_id + 1, std::memory_order_relaxed);
+    res.success = true;
   } else {
     segment_map.clear();
     cur_segment_ids.clear();
-    res.success = false;
   }
   return res;
 }
@@ -241,7 +248,7 @@ InitResult KV_Store::bootFromWAL() {
  * @param value The value to assign to the given key
  *
  */
-StoreSetResult KV_Store::set(std::string &key, std::string &value) {
+StoreSetResult KV_Store::set(const std::string &key, const std::string &value) {
 
   std::optional<uint64_t> location = hash_table.lookupHash(key);
   StoreSetResult res;

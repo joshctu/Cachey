@@ -39,15 +39,13 @@ class KV_Store {
 private:
   Hash_Table hash_table;
   std::atomic<uint32_t> next_segment_id{1};
+  std::vector<uint32_t> cur_segment_ids;
   // Register an observer to handle store events in other parts of program
   IStoreObserver *obs = nullptr;
   int compaction_threshold;
   std::filesystem::path root_dir;
   uint32_t max_segment_size;
   bool is_compacting = false;
-
-public:
-  std::vector<uint32_t> cur_segment_ids;
   std::unordered_map<uint32_t, std::unique_ptr<Segment>> segment_map;
   uint32_t active_id;
 
@@ -58,21 +56,22 @@ private:
   void setActiveSegment(const uint32_t segment_id);
   uint32_t generateSegmentId();
   uint32_t readSegmentId(const std::filesystem::path &file);
+  InitResult bootFromWAL();
+  InitResult bootFromHints(HintManager &hintManager);
+  uint32_t generateNewSegment();
+  void compact();
+  void destroySegment(std::unique_ptr<Segment> &segment);
 
 public:
   InitResult init();
-  InitResult bootFromWAL();
-  InitResult bootFromHints(HintManager &hintManager);
   void registerObserver(IStoreObserver *new_obs);
-  uint32_t generateNewSegment();
   void encodeIndexAndSet(const std::string &key, const uint32_t segment_id,
                          const uint32_t file_offset);
   bool isLatestRecord(const std::string &key, const uint32_t segment_id,
                       const uint32_t file_offset);
-  StoreSetResult set(std::string &key, std::string &value);
+  long getSegmentCount();
+  StoreSetResult set(const std::string &key, const std::string &value);
   std::optional<const std::string> get(const std::string &key);
   bool remove(const std::string &key);
-  void compact();
-  void destroySegment(std::unique_ptr<Segment> &segment);
   ~KV_Store();
 };

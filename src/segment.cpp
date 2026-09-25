@@ -312,6 +312,11 @@ void Segment::iterateCurrentRecords(const HintHandler &commitRecord,
 
   std::ifstream segment_file(file_path, std::ios::binary);
 
+  if (!segment_file) {
+    segment_file.close();
+    return;
+  }
+
   std::streamoff offset = 0;
 
   while (offset < used) {
