@@ -30,8 +30,7 @@ Segment::Segment(uint32_t id, uint32_t size, std::filesystem::path file_path)
 
     footer_offset += sizeof(decltype(SegmentFooter::magic)) +
                      sizeof(decltype(SegmentFooter::bytes_written));
-
-    create.seekp(footer_offset, std::ios::beg);
+    create.seekp(footer_offset);
 
     uint32_t dead_bytes = 0;
     create.write(reinterpret_cast<const char *>(&dead_bytes),
@@ -39,11 +38,12 @@ Segment::Segment(uint32_t id, uint32_t size, std::filesystem::path file_path)
     create.seekp(sizeof(decltype(SegmentFooter::entry_count)), std::ios::cur);
     create.write(reinterpret_cast<char *>(&id), sizeof(id));
     create.close();
-    return;
+    segment_file.open(file_path,
+                      std::ios::in | std::ios::out | std::ios::binary);
   } else {
-    std::ifstream segment_file(file_path, std::ios::binary);
     uint32_t magic;
-
+    segment_file.open(file_path,
+                      std::ios::in | std::ios::out | std::ios::binary);
     segment_file.seekg(-static_cast<std::streamoff>(SERIALIZED_FOOTER_SIZE),
                        std::ios::end);
     segment_file.read(reinterpret_cast<char *>(&magic), sizeof(magic));
@@ -56,9 +56,19 @@ Segment::Segment(uint32_t id, uint32_t size, std::filesystem::path file_path)
                        std::ios::cur);
     segment_file.read(reinterpret_cast<char *>(&entry_count),
                       sizeof(entry_count));
-
-    segment_file.close();
   }
+}
+
+bool Segment::seekTo(std::streamoff offset) {
+  segment_file.clear();
+  segment_file.seekg(offset, std::ios::beg);
+  return segment_file.good();
+}
+
+bool Segment::writeTo(std::streamoff offset) {
+  segment_file.clear();
+  segment_file.seekp(offset, std::ios::beg);
+  return segment_file.good();
 }
 
 /**
@@ -69,11 +79,8 @@ Segment::Segment(uint32_t id, uint32_t size, std::filesystem::path file_path)
  * file offset to set the record in the index map
  */
 uint32_t Segment::replay(const ReplayHandler &on_record) {
-  std::ifstream segment_file(file_path, std::ios::in | std::ios::binary);
 
-  if (!segment_file) {
-    return 0;
-  }
+  seekTo(0);
 
   std::streamoff file_limit =
       static_cast<std::streamoff>(size) -
@@ -118,7 +125,6 @@ uint32_t Segment::replay(const ReplayHandler &on_record) {
     }
 
     if (bytes_read == 0) {
-      segment_file.close();
       break;
     }
 
@@ -134,8 +140,8 @@ uint32_t Segment::replay(const ReplayHandler &on_record) {
     bytes_read += segment_file.gcount();
 
     /*If we hit a bad record we have to init the segment at the current offset
-      and number of records read. Any additional writes to the segment will
-      overwrite the bad record.
+      and number of records read. That way any additional writes to the segment
+      will overwrite the bad record.
     */
     if (!verifyChecksum(stored_checksum, key, value, operation)) {
       used = offset;
@@ -149,8 +155,7 @@ uint32_t Segment::replay(const ReplayHandler &on_record) {
     }
   }
 
-  segment_file.clear();
-  segment_file.seekg(file_limit, std::ios::beg);
+  seekTo(file_limit);
   uint32_t magic;
   segment_file.read(reinterpret_cast<char *>(&magic), sizeof(magic));
 
@@ -167,7 +172,6 @@ uint32_t Segment::replay(const ReplayHandler &on_record) {
   if (magic == MAGIC)
     isSealed = true;
 
-  segment_file.close();
   return entry_count;
 }
 
@@ -240,12 +244,12 @@ bool Segment::canAppend(uint32_t const entry_size) {
  * invalidated
  */
 void Segment::invalidateBytes(const uint32_t file_offset) {
-  std::fstream file(file_path, std::ios::in | std::ios::out | std::ios::binary);
 
-  file.seekg(file_offset, std::ios::beg);
+  seekTo(file_offset);
 
   uint32_t record_length;
-  file.read(reinterpret_cast<char *>(&record_length), sizeof(record_length));
+  segment_file.read(reinterpret_cast<char *>(&record_length),
+                    sizeof(record_length));
 
   // footer start
   std::streamoff footer_offset =
@@ -257,44 +261,44 @@ void Segment::invalidateBytes(const uint32_t file_offset) {
       sizeof(decltype(SegmentFooter::magic)) +
       sizeof(decltype(SegmentFooter::bytes_written)));
 
-  file.seekg(footer_offset, std::ios::beg);
+  seekTo(footer_offset);
 
   uint32_t dead_bytes;
-  file.read(reinterpret_cast<char *>(&dead_bytes), sizeof(dead_bytes));
+  segment_file.read(reinterpret_cast<char *>(&dead_bytes), sizeof(dead_bytes));
 
   dead_bytes += record_length;
-  file.seekp(footer_offset, std::ios::beg);
-  file.write(reinterpret_cast<char *>(&dead_bytes), sizeof(dead_bytes));
-
-  file.close();
+  writeTo(footer_offset);
+  segment_file.write(reinterpret_cast<char *>(&dead_bytes), sizeof(dead_bytes));
+  segment_file.flush();
 }
 
 bool Segment::nextValidRecord(Cursor &c, SegmentRecordView &rec) {
 
-  if (c.next_record >= used)
+  if (c.next_record >= used) {
     return false;
+  }
 
   c.file_offset = c.next_record;
 
   SegmentEntryHeader header{};
-  std::ifstream file(file_path, std::ios::in | std::ios::binary);
 
-  file.seekg(c.next_record, std::ios::beg);
-  file.read(reinterpret_cast<char *>(&rec.length), sizeof(rec.length));
-  file.read(reinterpret_cast<char *>(&header.checksum),
-            sizeof(header.checksum));
-  file.read(reinterpret_cast<char *>(&header.key_size),
-            sizeof(header.key_size));
-  file.read(reinterpret_cast<char *>(&header.value_size),
-            sizeof(header.value_size));
-  file.read(reinterpret_cast<char *>(&header.operation),
-            sizeof(header.operation));
+  seekTo(c.next_record);
+  segment_file.read(reinterpret_cast<char *>(&rec.length), sizeof(rec.length));
+  segment_file.read(reinterpret_cast<char *>(&header.checksum),
+                    sizeof(header.checksum));
+  segment_file.read(reinterpret_cast<char *>(&header.key_size),
+                    sizeof(header.key_size));
+  segment_file.read(reinterpret_cast<char *>(&header.value_size),
+                    sizeof(header.value_size));
+  segment_file.read(reinterpret_cast<char *>(&header.operation),
+                    sizeof(header.operation));
 
   rec.key.resize(header.key_size);
   rec.value.resize(header.value_size);
 
-  file.read(reinterpret_cast<char *>(rec.key.data()), header.key_size);
-  file.read(reinterpret_cast<char *>(rec.value.data()), header.value_size);
+  segment_file.read(reinterpret_cast<char *>(rec.key.data()), header.key_size);
+  segment_file.read(reinterpret_cast<char *>(rec.value.data()),
+                    header.value_size);
 
   rec.header = header;
 
@@ -310,15 +314,7 @@ bool Segment::nextValidRecord(Cursor &c, SegmentRecordView &rec) {
 void Segment::iterateCurrentRecords(const HintHandler &commitRecord,
                                     const IndexHandler &is_latest_record) {
 
-  std::ifstream segment_file(file_path, std::ios::binary);
-
-  if (!segment_file) {
-    segment_file.close();
-    return;
-  }
-
   std::streamoff offset = 0;
-
   while (offset < used) {
 
     uint32_t record_length;
@@ -326,6 +322,7 @@ void Segment::iterateCurrentRecords(const HintHandler &commitRecord,
     uint32_t value_size;
     std::string key;
 
+    seekTo(offset);
     segment_file.read(reinterpret_cast<char *>(&record_length),
                       sizeof(record_length));
     segment_file.seekg(sizeof(decltype(SegmentEntryHeader::checksum)),
@@ -347,8 +344,6 @@ void Segment::iterateCurrentRecords(const HintHandler &commitRecord,
 
     offset += record_length;
   }
-
-  segment_file.close();
 }
 
 /**
@@ -363,20 +358,20 @@ void Segment::append(const std::string &key, const std::string &value) {
   uint32_t record_length = sizeof(decltype(SegmentRecord::length)) +
                            SERIALIZED_HEADER_SIZE + key.size() + value.size();
   header.checksum = generateRecordChecksum(key, value, 0x20);
-  std::fstream file(file_path, std::ios::in | std::ios::out | std::ios::binary);
 
-  file.seekp(used);
-  file.write(reinterpret_cast<char *>(&record_length), sizeof(record_length));
-  file.write(reinterpret_cast<char *>(&header.checksum),
-             sizeof(header.checksum));
-  file.write(reinterpret_cast<char *>(&header.key_size),
-             sizeof(header.key_size));
-  file.write(reinterpret_cast<char *>(&header.value_size),
-             sizeof(header.value_size));
-  file.write(reinterpret_cast<char *>(&header.operation),
-             sizeof(header.operation));
-  file.write(key.data(), header.key_size);
-  file.write(value.data(), header.value_size);
+  writeTo(used);
+  segment_file.write(reinterpret_cast<char *>(&record_length),
+                     sizeof(record_length));
+  segment_file.write(reinterpret_cast<char *>(&header.checksum),
+                     sizeof(header.checksum));
+  segment_file.write(reinterpret_cast<char *>(&header.key_size),
+                     sizeof(header.key_size));
+  segment_file.write(reinterpret_cast<char *>(&header.value_size),
+                     sizeof(header.value_size));
+  segment_file.write(reinterpret_cast<char *>(&header.operation),
+                     sizeof(header.operation));
+  segment_file.write(key.data(), header.key_size);
+  segment_file.write(value.data(), header.value_size);
 
   used += record_length;
   entry_count += 1;
@@ -384,16 +379,18 @@ void Segment::append(const std::string &key, const std::string &value) {
   std::streamoff footer_offset =
       static_cast<std::streamoff>(size) -
       static_cast<std::streamoff>(SERIALIZED_FOOTER_SIZE);
-  file.seekp(footer_offset, std::ios::beg);
+  writeTo(footer_offset);
   // Skip magic
-  file.seekp(sizeof(decltype(SegmentFooter::magic)), std::ios::cur);
+  segment_file.seekp(sizeof(decltype(SegmentFooter::magic)), std::ios::cur);
 
-  file.write(reinterpret_cast<char *>(&used), sizeof(used));
+  segment_file.write(reinterpret_cast<char *>(&used), sizeof(used));
   // Skip dead bytes
-  file.seekp(sizeof(decltype(SegmentFooter::dead_bytes)), std::ios::cur);
+  segment_file.seekp(sizeof(decltype(SegmentFooter::dead_bytes)),
+                     std::ios::cur);
 
-  file.write(reinterpret_cast<char *>(&entry_count), sizeof(entry_count));
-  file.close();
+  segment_file.write(reinterpret_cast<char *>(&entry_count),
+                     sizeof(entry_count));
+  segment_file.flush();
 }
 
 /**
@@ -406,29 +403,29 @@ void Segment::append(const std::string &key, const std::string &value) {
  */
 std::optional<const std::string> Segment::read(const std::string &key,
                                                uint32_t const offset) {
-  std::fstream file(file_path, std::ios::in | std::ios::out | std::ios::binary);
 
-  file.seekg(offset);
+  if (!segment_file)
+    return std::nullopt;
+
+  seekTo(offset);
 
   // Read back the stored checksum
   uint64_t stored_checksum;
   uint32_t value_size;
 
   // Skip the record length here. It's not relevant in this function.
-  file.seekg(sizeof(uint32_t), std::ios::cur);
+  segment_file.seekg(sizeof(uint32_t), std::ios::cur);
 
-  file.read(reinterpret_cast<char *>(&stored_checksum),
-            sizeof(stored_checksum));
-  file.seekg(sizeof(uint32_t), std::ios::cur);
-  file.read(reinterpret_cast<char *>(&value_size), sizeof(value_size));
+  segment_file.read(reinterpret_cast<char *>(&stored_checksum),
+                    sizeof(stored_checksum));
+  segment_file.seekg(sizeof(uint32_t), std::ios::cur);
+  segment_file.read(reinterpret_cast<char *>(&value_size), sizeof(value_size));
 
   // Skip to value
-  file.seekg(sizeof(uint8_t) + key.size(), std::ios::cur);
+  segment_file.seekg(sizeof(uint8_t) + key.size(), std::ios::cur);
   std::string value;
   value.resize(value_size);
-  file.read(value.data(), value_size);
-
-  file.close();
+  segment_file.read(value.data(), value_size);
 
   if (verifyChecksum(stored_checksum, key, value, 0x20))
     return value;
@@ -447,8 +444,6 @@ std::optional<const std::string> Segment::read(const std::string &key,
  * this segment.
  */
 uint32_t Segment::readDeadBytes() {
-  std::fstream file(file_path, std::ios::in | std::ios::out | std::ios::binary);
-
   std::streamoff footer_offset =
       static_cast<std::streamoff>(size) -
       static_cast<std::streamoff>(SERIALIZED_FOOTER_SIZE);
@@ -456,10 +451,9 @@ uint32_t Segment::readDeadBytes() {
   uint32_t dead_bytes;
   footer_offset += sizeof(decltype(SegmentFooter::magic)) +
                    sizeof(decltype(SegmentFooter::bytes_written));
-  file.seekg(footer_offset);
-  file.read(reinterpret_cast<char *>(&dead_bytes), sizeof(dead_bytes));
+  seekTo(footer_offset);
+  segment_file.read(reinterpret_cast<char *>(&dead_bytes), sizeof(dead_bytes));
 
-  file.close();
   return dead_bytes;
 }
 
@@ -475,19 +469,18 @@ void Segment::remove(const std::string &key) {
                            SERIALIZED_HEADER_SIZE + key.size();
   header.checksum = generateRecordChecksum(key, "", 0x30);
 
-  std::fstream file(file_path, std::ios::in | std::ios::out | std::ios::binary);
-
-  file.seekp(used);
-  file.write(reinterpret_cast<char *>(&record_length), sizeof(record_length));
-  file.write(reinterpret_cast<const char *>(&header.checksum),
-             sizeof(header.checksum));
-  file.write(reinterpret_cast<const char *>(&header.key_size),
-             sizeof(header.key_size));
-  file.write(reinterpret_cast<const char *>(&header.value_size),
-             sizeof(header.value_size));
-  file.write(reinterpret_cast<const char *>(&header.operation),
-             sizeof(header.operation));
-  file.write(key.data(), key.size());
+  writeTo(used);
+  segment_file.write(reinterpret_cast<char *>(&record_length),
+                     sizeof(record_length));
+  segment_file.write(reinterpret_cast<const char *>(&header.checksum),
+                     sizeof(header.checksum));
+  segment_file.write(reinterpret_cast<const char *>(&header.key_size),
+                     sizeof(header.key_size));
+  segment_file.write(reinterpret_cast<const char *>(&header.value_size),
+                     sizeof(header.value_size));
+  segment_file.write(reinterpret_cast<const char *>(&header.operation),
+                     sizeof(header.operation));
+  segment_file.write(key.data(), key.size());
 
   used += record_length;
   entry_count += 1;
@@ -495,32 +488,34 @@ void Segment::remove(const std::string &key) {
   std::streamoff footer_offset =
       static_cast<std::streamoff>(size) -
       static_cast<std::streamoff>(SERIALIZED_FOOTER_SIZE);
-  file.seekp(footer_offset);
+  writeTo(footer_offset);
   // Skip magic
-  file.seekp(sizeof(decltype(SegmentFooter::magic)), std::ios::cur);
+  segment_file.seekp(sizeof(decltype(SegmentFooter::magic)), std::ios::cur);
 
-  file.write(reinterpret_cast<char *>(&used), sizeof(used));
+  segment_file.write(reinterpret_cast<char *>(&used), sizeof(used));
   // Skip dead bytes
-  file.seekp(sizeof(decltype(SegmentFooter::dead_bytes)), std::ios::cur);
+  segment_file.seekp(sizeof(decltype(SegmentFooter::dead_bytes)),
+                     std::ios::cur);
 
-  file.write(reinterpret_cast<char *>(&entry_count), sizeof(entry_count));
-  file.close();
+  segment_file.write(reinterpret_cast<char *>(&entry_count),
+                     sizeof(entry_count));
+  segment_file.flush();
 }
 
 void Segment::seal() {
-  std::fstream file(file_path, std::ios::in | std::ios::out | std::ios::binary);
-
   std::streamoff offset = static_cast<std::streamoff>(size) -
                           static_cast<std::streamoff>(SERIALIZED_FOOTER_SIZE);
-  file.seekp(offset, std::ios::beg);
-  file.write(reinterpret_cast<const char *>(&MAGIC), sizeof(MAGIC));
-  file.write(reinterpret_cast<char *>(&used), sizeof(used));
+  writeTo(offset);
+  segment_file.write(reinterpret_cast<const char *>(&MAGIC), sizeof(MAGIC));
+  segment_file.write(reinterpret_cast<char *>(&used), sizeof(used));
   // Skip over dead bytes field
-  file.seekp(sizeof(decltype(SegmentFooter::dead_bytes)), std::ios::cur);
-  file.write(reinterpret_cast<char *>(&entry_count), sizeof(entry_count));
+  segment_file.seekp(sizeof(decltype(SegmentFooter::dead_bytes)),
+                     std::ios::cur);
+  segment_file.write(reinterpret_cast<char *>(&entry_count),
+                     sizeof(entry_count));
+  segment_file.flush();
 
   isSealed = true;
-  file.close();
 }
 
 /**

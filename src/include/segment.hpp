@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <optional>
 
@@ -77,6 +78,7 @@ public:
   uint16_t entry_count = 0;
   bool isSealed = false;
   std::filesystem::path file_path;
+  std::fstream segment_file;
 
 public:
   Segment(uint32_t id, uint32_t size, std::filesystem::path file_path);
@@ -90,6 +92,8 @@ public:
   bool verifyChecksum(const uint64_t &stored_checksum, const std::string &key,
                       const std::string &value, const uint8_t operation);
   bool canAppend(const uint32_t entry_size);
+  bool seekTo(std::streamoff offset);
+  bool writeTo(std::streamoff offset);
   void invalidateBytes(const uint32_t file_offset);
   uint32_t readDeadBytes();
   int computeDeadBytes(const IndexHandler &is_latest_record);
