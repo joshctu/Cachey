@@ -3,6 +3,7 @@
 #include "hash.hpp"
 #include "hint_manager.hpp"
 #include "istore_observer.hpp"
+#include "manifest.hpp"
 #include "segment.hpp"
 #include <atomic>
 #include <optional>
@@ -38,6 +39,7 @@ class KV_Store {
 
 private:
   Hash_Table hash_table;
+  ManifestManager manifest;
   std::atomic<uint32_t> next_segment_id{1};
   std::vector<uint32_t> cur_segment_ids;
   // Register an observer to handle store events in other parts of program

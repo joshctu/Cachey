@@ -24,7 +24,7 @@
 KV_Store::KV_Store(ProjectConfig &config)
     : root_dir(config.root_dir),
       compaction_threshold(config.compaction_threshold),
-      max_segment_size(config.max_segment_size) {
+      max_segment_size(config.max_segment_size), manifest(config.root_dir) {
   std::filesystem::create_directories(root_dir / "database/wal/segments");
 }
 
@@ -61,7 +61,6 @@ uint32_t KV_Store::readSegmentId(const std::filesystem::path &path) {
 
   offset += sizeof(decltype(SegmentFooter::magic)) +
             sizeof(decltype(SegmentFooter::bytes_written)) +
-            sizeof(decltype(SegmentFooter::dead_bytes)) +
             sizeof(decltype(SegmentFooter::entry_count));
 
   segment_file.seekg(offset, std::ios::beg);
@@ -261,7 +260,8 @@ StoreSetResult KV_Store::set(const std::string &key, const std::string &value) {
 
     if (it != segment_map.end()) {
       auto &segment = it->second;
-      segment->invalidateBytes(old_file_offset);
+      uint32_t record_size = segment->readRecordSize(old_file_offset);
+      manifest.writeInvalidateBytesEvent(old_segment_id, record_size);
       res.unique_write_completed = false;
     }
   }
@@ -340,13 +340,14 @@ bool KV_Store::remove(const std::string &key) {
 
   uint64_t valid_location = *location;
 
-  uint32_t file_offset = static_cast<uint32_t>(valid_location >> 32);
-  uint32_t segment_id = static_cast<uint32_t>(valid_location);
+  const uint32_t old_file_offset = static_cast<uint32_t>(valid_location >> 32);
+  const uint32_t old_segment_id = static_cast<uint32_t>(valid_location);
 
-  auto it = segment_map.find(segment_id);
+  auto it = segment_map.find(old_segment_id);
   if (it != segment_map.end()) {
     auto &old_segment = it->second;
-    old_segment->invalidateBytes(file_offset);
+    uint32_t old_record_size = old_segment->readRecordSize(old_file_offset);
+    manifest.writeInvalidateBytesEvent(old_segment_id, old_record_size);
   } else {
     // TODO: Handle not found case
   }
@@ -403,11 +404,13 @@ void KV_Store::compact() {
   std::vector<uint32_t> candidates;
 
   std::sort(cur_segment_ids.begin(), cur_segment_ids.end());
+  std::unordered_map<uint32_t, uint32_t> invalidBytes =
+      manifest.getInvalidBytesTotals();
 
   for (auto segment_id : cur_segment_ids) {
     auto &segment = segment_map[segment_id];
     if (segment->isSealed) {
-      int dead_bytes = segment->readDeadBytes();
+      int dead_bytes = invalidBytes[segment_id];
 
       int dead_bytes_percent = ((float)dead_bytes / max_segment_size) * 100;
 

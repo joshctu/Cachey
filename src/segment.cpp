@@ -29,13 +29,9 @@ Segment::Segment(uint32_t id, uint32_t size, std::filesystem::path file_path)
         static_cast<std::streamoff>(SERIALIZED_FOOTER_SIZE);
 
     footer_offset += sizeof(decltype(SegmentFooter::magic)) +
-                     sizeof(decltype(SegmentFooter::bytes_written));
+                     sizeof(decltype(SegmentFooter::bytes_written)) +
+                     sizeof(decltype(SegmentFooter::entry_count));
     create.seekp(footer_offset);
-
-    uint32_t dead_bytes = 0;
-    create.write(reinterpret_cast<const char *>(&dead_bytes),
-                 sizeof(dead_bytes));
-    create.seekp(sizeof(decltype(SegmentFooter::entry_count)), std::ios::cur);
     create.write(reinterpret_cast<char *>(&id), sizeof(id));
     create.close();
     segment_file.open(file_path,
@@ -52,8 +48,6 @@ Segment::Segment(uint32_t id, uint32_t size, std::filesystem::path file_path)
       isSealed = true;
 
     segment_file.read(reinterpret_cast<char *>(&used), sizeof(used));
-    segment_file.seekg(sizeof(decltype(SegmentFooter::dead_bytes)),
-                       std::ios::cur);
     segment_file.read(reinterpret_cast<char *>(&entry_count),
                       sizeof(entry_count));
   }
@@ -162,9 +156,6 @@ uint32_t Segment::replay(const ReplayHandler &on_record) {
   if (!bad_read) {
     segment_file.read(reinterpret_cast<char *>(&used), sizeof(used));
 
-    segment_file.seekg(sizeof(decltype(SegmentFooter::dead_bytes)),
-                       std::ios::cur);
-
     segment_file.read(reinterpret_cast<char *>(&entry_count),
                       sizeof(entry_count));
   }
@@ -236,40 +227,14 @@ bool Segment::canAppend(uint32_t const entry_size) {
   return !isSealed && entry_size <= size - used - SERIALIZED_FOOTER_SIZE;
 }
 
-/**
- * @brief Reads the size of the record at the provided offset and adds it to the
- * sum of invalidated bytes in this segment.
- *
- * @param file_offset The offset into the segment for the record that has been
- * invalidated
- */
-void Segment::invalidateBytes(const uint32_t file_offset) {
-
+uint32_t Segment::readRecordSize(const uint32_t file_offset) {
   seekTo(file_offset);
 
   uint32_t record_length;
   segment_file.read(reinterpret_cast<char *>(&record_length),
                     sizeof(record_length));
 
-  // footer start
-  std::streamoff footer_offset =
-      static_cast<std::streamoff>(size) -
-      static_cast<std::streamoff>(SERIALIZED_FOOTER_SIZE);
-
-  // skip to dead bytes
-  footer_offset += static_cast<std::streamoff>(
-      sizeof(decltype(SegmentFooter::magic)) +
-      sizeof(decltype(SegmentFooter::bytes_written)));
-
-  seekTo(footer_offset);
-
-  uint32_t dead_bytes;
-  segment_file.read(reinterpret_cast<char *>(&dead_bytes), sizeof(dead_bytes));
-
-  dead_bytes += record_length;
-  writeTo(footer_offset);
-  segment_file.write(reinterpret_cast<char *>(&dead_bytes), sizeof(dead_bytes));
-  segment_file.flush();
+  return record_length;
 }
 
 bool Segment::nextValidRecord(Cursor &c, SegmentRecordView &rec) {
@@ -384,9 +349,6 @@ void Segment::append(const std::string &key, const std::string &value) {
   segment_file.seekp(sizeof(decltype(SegmentFooter::magic)), std::ios::cur);
 
   segment_file.write(reinterpret_cast<char *>(&used), sizeof(used));
-  // Skip dead bytes
-  segment_file.seekp(sizeof(decltype(SegmentFooter::dead_bytes)),
-                     std::ios::cur);
 
   segment_file.write(reinterpret_cast<char *>(&entry_count),
                      sizeof(entry_count));
@@ -438,26 +400,6 @@ std::optional<const std::string> Segment::read(const std::string &key,
 }
 
 /**
- * @brief Returns the current number of dead bytes for this segment
- *
- * @return An unsigned 32bit integer representing the number of dead bytes in
- * this segment.
- */
-uint32_t Segment::readDeadBytes() {
-  std::streamoff footer_offset =
-      static_cast<std::streamoff>(size) -
-      static_cast<std::streamoff>(SERIALIZED_FOOTER_SIZE);
-
-  uint32_t dead_bytes;
-  footer_offset += sizeof(decltype(SegmentFooter::magic)) +
-                   sizeof(decltype(SegmentFooter::bytes_written));
-  seekTo(footer_offset);
-  segment_file.read(reinterpret_cast<char *>(&dead_bytes), sizeof(dead_bytes));
-
-  return dead_bytes;
-}
-
-/**
  * @brief "Remove" an entry by adding a tombstone for the given key
  *
  * @param key The key to be removed
@@ -493,9 +435,6 @@ void Segment::remove(const std::string &key) {
   segment_file.seekp(sizeof(decltype(SegmentFooter::magic)), std::ios::cur);
 
   segment_file.write(reinterpret_cast<char *>(&used), sizeof(used));
-  // Skip dead bytes
-  segment_file.seekp(sizeof(decltype(SegmentFooter::dead_bytes)),
-                     std::ios::cur);
 
   segment_file.write(reinterpret_cast<char *>(&entry_count),
                      sizeof(entry_count));
@@ -508,9 +447,6 @@ void Segment::seal() {
   writeTo(offset);
   segment_file.write(reinterpret_cast<const char *>(&MAGIC), sizeof(MAGIC));
   segment_file.write(reinterpret_cast<char *>(&used), sizeof(used));
-  // Skip over dead bytes field
-  segment_file.seekp(sizeof(decltype(SegmentFooter::dead_bytes)),
-                     std::ios::cur);
   segment_file.write(reinterpret_cast<char *>(&entry_count),
                      sizeof(entry_count));
   segment_file.flush();

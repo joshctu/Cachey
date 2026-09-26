@@ -13,7 +13,7 @@ find_package(Catch2 3 REQUIRED)
 
 qt_standard_project_setup()
 
-add_library(kv_store_lib src/store.cpp src/segment.cpp src/hash.cpp src/store_controller.cpp src/hint_manager.cpp src/include/store_controller.hpp)
+add_library(kv_store_lib src/store.cpp src/segment.cpp src/hash.cpp src/store_controller.cpp src/hint_manager.cpp src/manifest.cpp src/include/store_controller.hpp)
 
 qt_add_executable(kv_store_init src/main.cpp src/gui.cpp src/include/gui.hpp)
 

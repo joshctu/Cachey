@@ -8,7 +8,7 @@
 
 constexpr uint32_t MAX_SEGMENT_SIZE = 256;
 constexpr uint32_t SERIALIZED_HEADER_SIZE = 17;
-constexpr uint32_t SERIALIZED_FOOTER_SIZE = 18;
+constexpr uint32_t SERIALIZED_FOOTER_SIZE = 14;
 constexpr uint32_t MAGIC = 0xDEAD2BAD;
 
 struct Cursor {
@@ -19,7 +19,6 @@ struct Cursor {
 struct SegmentFooter {
   uint32_t magic;
   uint32_t bytes_written;
-  uint32_t dead_bytes;
   uint16_t entry_count;
   uint32_t segment_id;
 };
@@ -94,8 +93,7 @@ public:
   bool canAppend(const uint32_t entry_size);
   bool seekTo(std::streamoff offset);
   bool writeTo(std::streamoff offset);
-  void invalidateBytes(const uint32_t file_offset);
-  uint32_t readDeadBytes();
+  uint32_t readRecordSize(const uint32_t file_offset);
   int computeDeadBytes(const IndexHandler &is_latest_record);
   bool nextValidRecord(Cursor &c, SegmentRecordView &rec);
   void iterateCurrentRecords(const HintHandler &commitRecord,
