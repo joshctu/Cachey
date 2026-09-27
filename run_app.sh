@@ -2,4 +2,4 @@
 
 
 cmake --build build
-./build/kv_store_init
+cd build && ./kv_store_init

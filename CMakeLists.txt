@@ -21,7 +21,7 @@ qt_add_executable(kv_store_init src/main.cpp src/gui.cpp src/include/gui.hpp)
 add_executable(tests tests/test_store.cpp)
 set_target_properties(tests PROPERTIES AUTOMOC OFF)
 
-add_executable(benchmarks benchmarks/bench.cpp)
+add_executable(benchmarks benchmarks/bench_writes.cpp benchmarks/bench_reads.cpp)
 
 target_link_libraries(kv_store_lib PUBLIC xxHash::xxhash)
 target_link_libraries(kv_store_lib PUBLIC Qt6::Widgets Qt6::Core)

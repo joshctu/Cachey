@@ -139,6 +139,8 @@ InitResult KV_Store::init() {
   if (hintManager.isValidHintFile())
     res = bootFromHints(hintManager);
 
+  std::cout << "we booted from hints: " << res.success << '\n';
+
   if (!res.success)
     res = bootFromWAL();
 

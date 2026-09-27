@@ -36,7 +36,7 @@ void HintManager::removeHintFile() { std::filesystem::remove_all(file_path); }
  */
 bool HintManager::isValidHintFile() {
   return std::filesystem::exists(file_path) and
-         std::filesystem::file_size(file_path) != 0;
+         std::filesystem::file_size(file_path) > SERIALIZED_HINTS_FOOTER_SIZE;
 }
 
 void HintManager::writeHint(const std::string &key, const uint32_t &segment_id,
@@ -46,8 +46,6 @@ void HintManager::writeHint(const std::string &key, const uint32_t &segment_id,
                          std::ios::in | std::ios::out | std::ios::binary);
 
   if (!hint_file.is_open()) {
-    std::cout << "hint file not open" << std::endl;
-
     return;
   }
 
