@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <unordered_map>
+#include <unordered_set>
 
 static constexpr uint32_t SERIALIZED_MANIFEST_RECORD_SIZE = 9;
 
@@ -16,7 +17,7 @@ struct ManifestEvent {
 
 class ManifestManager {
 private:
-  std::filesystem::path file_path;
+  std::filesystem::path root_dir;
   std::fstream manifest_file;
   uint32_t used = 0;
 
@@ -27,4 +28,7 @@ public:
                                  const uint32_t dead_bytes);
 
   std::unordered_map<uint32_t, uint32_t> getInvalidBytesTotals();
+  void compactManifest(
+      std::unordered_set<uint32_t> &&proccessed_segment_ids,
+      std::unordered_map<uint32_t, uint32_t> &&invalid_bytes_per_segment);
 };

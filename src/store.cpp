@@ -381,27 +381,18 @@ bool KV_Store::remove(const std::string &key) {
 }
 
 /**
- * @brief This function iterates through current log files looking for files
- * with a dead_bytes percentage of over 50%. Currently when 3 candidate files
- * are found they are compacted. Original segments and their log files are
- * deleted. Then the function returns.
- *
+ * @brief This function calls the manifest manageer looking for segments
+ * with a dead_bytes percentage of over 50%. Compaction threshold (number of
+ * segments required to trigger compaction) is configurable through config
+ * arguments to the store. Original segments and their log files are deleted.
+ * Manifest is compacted.
  */
 void KV_Store::compact() {
   if (is_compacting)
     return;
   is_compacting = true;
-  /* Step 1: a heuristic triggered this function. Maybe we reached a threshold
-   segment number.
 
-   Step 2: Comb segments starting from oldest. Read dead bytes field in footer.
-   If dead / live bytes for this segment meets a threshold, add to compaction
-   candidates. When we reach a certain number of compaction candidates, break.
-
-   Step 3: Begin iterating through candidates. Skip invalid records and write
-   valid records for each candidate to new files.
-  */
-  std::vector<uint32_t> candidates;
+  std::unordered_set<uint32_t> candidates;
 
   std::sort(cur_segment_ids.begin(), cur_segment_ids.end());
   std::unordered_map<uint32_t, uint32_t> invalidBytes =
@@ -415,7 +406,7 @@ void KV_Store::compact() {
       int dead_bytes_percent = ((float)dead_bytes / max_segment_size) * 100;
 
       if (dead_bytes_percent > 50) {
-        candidates.push_back(segment_id);
+        candidates.insert(segment_id);
         if (candidates.size() == compaction_threshold)
           break;
       }
@@ -472,6 +463,8 @@ void KV_Store::compact() {
   for (auto &candidate : candidates) {
     destroySegment(segment_map[candidate]);
   }
+
+  manifest.compactManifest(std::move(candidates), std::move(invalidBytes));
 
   is_compacting = false;
 

@@ -2,5 +2,6 @@ build/*
 .cache/*
 database/*
 tests/database/*
+benchmarks/database/*
 vcpkg_installed/*
 vcpkg-manifest-install.log
