@@ -14,6 +14,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 /**
@@ -26,6 +27,7 @@ KV_Store::KV_Store(ProjectConfig &config)
       compaction_threshold(config.compaction_threshold),
       max_segment_size(config.max_segment_size), manifest(config.root_dir) {
   std::filesystem::create_directories(root_dir / "database/wal/segments");
+  compaction_thread = std::thread(&KV_Store::compactionLifecycle, this);
 }
 
 /**
@@ -71,20 +73,13 @@ uint32_t KV_Store::readSegmentId(const std::filesystem::path &path) {
 }
 
 /**
- * @brief Get the current number of segments in memory
- *
- * @return The number of segments in memory
- */
-long KV_Store::getSegmentCount() { return cur_segment_ids.size(); }
-
-/**
  * @brief generate a new log segment in sequential order
  *
  * @return The segment_id of the new segment.
  */
 uint32_t KV_Store::generateNewSegment() {
   uint32_t segment_id = generateSegmentId();
-  cur_segment_ids.push_back(segment_id);
+  segment_id_monitor.push_back(segment_id);
 
   std::stringstream file;
 
@@ -93,12 +88,30 @@ uint32_t KV_Store::generateNewSegment() {
   std::filesystem::path p =
       std::filesystem::path(root_dir / "database/wal/segments") / file.str();
 
-  segment_map[segment_id] =
-      std::make_unique<Segment>(segment_id, max_segment_size, p);
+  segment_map_monitor.insert(segment_id, max_segment_size, p);
 
-  if (segment_map.size() % 20 == 0)
-    compact();
+  if (segment_map_monitor.size() % 20 == 0) {
+    compaction_pending.store(true);
+    cv.notify_one();
+  }
+
   return segment_id;
+}
+
+void KV_Store::compactionLifecycle() {
+
+  while (running) {
+    std::unique_lock lock(compact_mtx);
+    cv.wait(lock, [this] { return compaction_pending.load() || !running; });
+
+    if (!running)
+      break;
+
+    compaction_pending.store(false);
+
+    lock.unlock();
+    compact();
+  }
 }
 
 /**
@@ -139,8 +152,6 @@ InitResult KV_Store::init() {
   if (hintManager.isValidHintFile())
     res = bootFromHints(hintManager);
 
-  std::cout << "we booted from hints: " << res.success << '\n';
-
   if (!res.success)
     res = bootFromWAL();
 
@@ -157,7 +168,7 @@ InitResult KV_Store::bootFromHints(HintManager &hintManager) {
 
   while (hintManager.nextValidHint(c, rec)) {
     if (rec.segment_id != cur_segment_id) {
-      cur_segment_ids.push_back(rec.segment_id);
+      segment_id_monitor.push_back(rec.segment_id);
       std::stringstream file;
 
       file << std::setfill('0') << std::setw(6) << rec.segment_id << ".log";
@@ -165,10 +176,10 @@ InitResult KV_Store::bootFromHints(HintManager &hintManager) {
       std::filesystem::path file_path =
           std::filesystem::path(root_dir / "database/wal/segments") /
           file.str();
-      segment_map[rec.segment_id] = std::make_unique<Segment>(
-          rec.segment_id, max_segment_size, file_path);
+      segment_map_monitor.insert(rec.segment_id, max_segment_size, file_path);
+      auto segment_ptr = segment_map_monitor.access(rec.segment_id);
       cur_segment_id = rec.segment_id;
-      if (!segment_map[rec.segment_id]->isSealed)
+      if (segment_ptr && !segment_ptr->isSealed)
         setActiveSegment(rec.segment_id);
     }
     encodeIndexAndSet(rec.key.data(), rec.segment_id, rec.file_offset);
@@ -178,8 +189,8 @@ InitResult KV_Store::bootFromHints(HintManager &hintManager) {
     next_segment_id.store(cur_segment_id + 1, std::memory_order_relaxed);
     res.success = true;
   } else {
-    segment_map.clear();
-    cur_segment_ids.clear();
+    segment_map_monitor.clear();
+    segment_id_monitor.clear();
   }
   return res;
 }
@@ -216,13 +227,15 @@ InitResult KV_Store::bootFromWAL() {
   uint32_t max_segment_id = 0;
   for (const auto &file : log_files) {
     uint32_t segment_id = readSegmentId(file);
-    cur_segment_ids.push_back(segment_id);
+    segment_id_monitor.push_back(segment_id);
     max_segment_id = std::max(max_segment_id, segment_id);
-    segment_map[segment_id] = std::make_unique<Segment>(
-        segment_id, max_segment_size, std::filesystem::path(file));
+    segment_map_monitor.insert(segment_id, max_segment_size,
+                               std::filesystem::path(file));
+
+    auto segment_ptr = segment_map_monitor.access(segment_id);
 
     try {
-      uint32_t segment_entries = segment_map[segment_id]->replay(
+      uint32_t segment_entries = segment_ptr->replay(
           [this](const std::string &key, const uint32_t segment_id,
                  const uint32_t file_offset) {
             encodeIndexAndSet(key, segment_id, file_offset);
@@ -233,7 +246,7 @@ InitResult KV_Store::bootFromWAL() {
       return {total_entries, false};
     }
 
-    if (!segment_map[segment_id]->isSealed)
+    if (segment_ptr && !segment_ptr->isSealed)
       setActiveSegment(segment_id);
   }
 
@@ -250,21 +263,23 @@ InitResult KV_Store::bootFromWAL() {
  */
 StoreSetResult KV_Store::set(const std::string &key, const std::string &value) {
 
+  std::unique_lock<std::shared_mutex> lock(store_mtx);
   std::optional<uint64_t> location = hash_table.lookupHash(key);
   StoreSetResult res;
+  bool existed = false;
 
   if (location) {
     uint64_t valid_location = *location;
     uint32_t old_file_offset = static_cast<uint32_t>(valid_location >> 32);
     uint32_t old_segment_id = static_cast<uint32_t>(valid_location);
 
-    auto it = segment_map.find(old_segment_id);
+    auto segment_ptr = segment_map_monitor.access(old_segment_id);
 
-    if (it != segment_map.end()) {
-      auto &segment = it->second;
-      uint32_t record_size = segment->readRecordSize(old_file_offset);
+    if (segment_ptr != nullptr) {
+      uint32_t record_size = segment_ptr->readRecordSize(old_file_offset);
       manifest.writeInvalidateBytesEvent(old_segment_id, record_size);
       res.unique_write_completed = false;
+      existed = true;
     }
   }
 
@@ -272,21 +287,23 @@ StoreSetResult KV_Store::set(const std::string &key, const std::string &value) {
   uint64_t record_size =
       sizeof(uint32_t) + SERIALIZED_HEADER_SIZE + key.size() + value.size();
 
-  if (!segment_map[active_id]->canAppend(record_size)) {
-    segment_map[active_id]->seal();
+  auto active_ptr = segment_map_monitor.access(active_id);
+  if (!active_ptr->canAppend(record_size)) {
+    active_ptr->seal();
     uint32_t segment_id = generateNewSegment();
     setActiveSegment(segment_id);
   }
 
-  auto &active_segment = segment_map[active_id];
+  auto active_segment_ptr = segment_map_monitor.access(active_id);
 
-  uint32_t curr_file_ptr = active_segment->used;
-  active_segment->append(key, value);
+  uint32_t curr_file_ptr = active_segment_ptr->used;
+
+  active_segment_ptr->append(key, value);
 
   // Encode file and byte offset in index
   uint64_t encode_offset = static_cast<uint64_t>(curr_file_ptr) << 32 |
                            static_cast<uint32_t>(std::stoi(
-                               active_segment->file_path.stem().string()));
+                               active_segment_ptr->file_path.stem().string()));
 
   hash_table.createIndex(key, encode_offset);
   return res;
@@ -301,6 +318,7 @@ StoreSetResult KV_Store::set(const std::string &key, const std::string &value) {
  *
  */
 std::optional<const std::string> KV_Store::get(const std::string &key) {
+  std::shared_lock<std::shared_mutex> lock(store_mtx);
   std::optional<uint64_t> location = hash_table.lookupHash(key);
 
   if (not location) {
@@ -312,18 +330,14 @@ std::optional<const std::string> KV_Store::get(const std::string &key) {
   uint32_t file_offset = static_cast<uint32_t>(valid_location >> 32);
   uint32_t segment_id = static_cast<uint32_t>(valid_location);
 
-  auto it = segment_map.find(segment_id);
-  if (it != segment_map.end()) {
-    auto &segment = it->second;
-    auto value = segment->read(key, file_offset);
+  auto segment_ptr = segment_map_monitor.access(segment_id);
+  auto value = segment_ptr->read(key, file_offset);
 
-    if (not value)
-      return std::nullopt;
+  if (not value)
+    return std::nullopt;
 
-    std::string valid_value = *value;
-    return valid_value;
-  }
-  return std::nullopt;
+  std::string valid_value = *value;
+  return valid_value;
 };
 
 /**
@@ -333,6 +347,7 @@ std::optional<const std::string> KV_Store::get(const std::string &key) {
  * @return True on removal success, false otherwise
  */
 bool KV_Store::remove(const std::string &key) {
+  std::unique_lock<std::shared_mutex> lock(store_mtx);
   uint64_t hash = hash_table.generateHash(key);
 
   std::optional<uint64_t> location = hash_table.lookupHash(key);
@@ -345,13 +360,10 @@ bool KV_Store::remove(const std::string &key) {
   const uint32_t old_file_offset = static_cast<uint32_t>(valid_location >> 32);
   const uint32_t old_segment_id = static_cast<uint32_t>(valid_location);
 
-  auto it = segment_map.find(old_segment_id);
-  if (it != segment_map.end()) {
-    auto &old_segment = it->second;
-    uint32_t old_record_size = old_segment->readRecordSize(old_file_offset);
+  auto old_segment_ptr = segment_map_monitor.access(old_segment_id);
+  if (old_segment_ptr) {
+    uint32_t old_record_size = old_segment_ptr->readRecordSize(old_file_offset);
     manifest.writeInvalidateBytesEvent(old_segment_id, old_record_size);
-  } else {
-    // TODO: Handle not found case
   }
 
   SegmentEntryHeader header(0, key.size(), 0x30);
@@ -360,53 +372,52 @@ bool KV_Store::remove(const std::string &key) {
   uint64_t record_size = sizeof(decltype(SegmentRecord::length)) +
                          SERIALIZED_HEADER_SIZE + key.size() + 0;
 
-  if (!segment_map[active_id]->canAppend(record_size)) {
-    segment_map[active_id]->seal();
+  auto active_segment_ptr = segment_map_monitor.access(active_id);
+  if (!active_segment_ptr->canAppend(record_size)) {
+    active_segment_ptr->seal();
     uint32_t new_segment_id = generateNewSegment();
     setActiveSegment(new_segment_id);
   }
 
-  auto &active_segment = segment_map[active_id];
+  active_segment_ptr = segment_map_monitor.access(active_id);
 
-  uint32_t curr_file_ptr = active_segment->used;
+  uint32_t curr_file_ptr = active_segment_ptr->used;
 
-  active_segment->remove(key);
+  active_segment_ptr->remove(key);
 
   // Encode file and byte offset in index
   uint64_t encode_offset =
       static_cast<uint64_t>(curr_file_ptr) << 32 |
-      static_cast<uint32_t>(std::stoi(active_segment->file_path.stem()));
+      static_cast<uint32_t>(std::stoi(active_segment_ptr->file_path.stem()));
 
-  hash_table.updateIndex(hash, encode_offset);
+  hash_table.createIndex(key, encode_offset);
 
   return true;
 }
 
 /**
- * @brief This function calls the manifest manageer looking for segments
+ * @brief This function calls the manifest manager looking for segments
  * with a dead_bytes percentage of over 50%. Compaction threshold (number of
  * segments required to trigger compaction) is configurable through config
  * arguments to the store. Original segments and their log files are deleted.
  * Manifest is compacted.
  */
 void KV_Store::compact() {
-  if (is_compacting)
-    return;
-  is_compacting = true;
-
   std::unordered_set<uint32_t> candidates;
+  std::vector<uint32_t> segment_snapshot = segment_id_monitor.get_snapshot();
 
-  std::sort(cur_segment_ids.begin(), cur_segment_ids.end());
-  std::unordered_map<uint32_t, uint32_t> invalidBytes =
+  std::sort(segment_snapshot.begin(), segment_snapshot.end());
+  std::unordered_map<uint32_t, uint32_t> invalid_bytes =
       manifest.getInvalidBytesTotals();
 
-  for (auto segment_id : cur_segment_ids) {
-    auto &segment = segment_map[segment_id];
-    if (segment->isSealed) {
-      int dead_bytes = invalidBytes[segment_id];
-
+  for (auto segment_id : segment_snapshot) {
+    auto segment_ptr = segment_map_monitor.access(segment_id);
+    if (!segment_ptr)
+      continue;
+    if (segment_ptr->isSealed) {
+      auto it = invalid_bytes.find(segment_id);
+      int dead_bytes = (it != invalid_bytes.end()) ? it->second : 0;
       int dead_bytes_percent = ((float)dead_bytes / max_segment_size) * 100;
-
       if (dead_bytes_percent > 50) {
         candidates.insert(segment_id);
         if (candidates.size() == compaction_threshold)
@@ -416,90 +427,87 @@ void KV_Store::compact() {
   }
 
   if (candidates.size() != compaction_threshold) {
-    is_compacting = false;
     return;
   }
 
-  /*
-   * I need to now iterate through each segment looking for valid records. Lets
-   * say i find one. Should the segment have a lambda that writes that record to
-   * the new file?
-   *
-   * Say I try to write but the new file is full. I need to commit the file and
-   * open a new one.
-   */
-
   CompactionResult result;
-  auto cur_writeable_segment_id = generateNewSegment();
+  auto cur_writeable_segment_ptr =
+      segment_map_monitor.access(generateNewSegment());
 
+  std::unique_lock<std::shared_mutex> lock(store_mtx);
   for (auto &candidate : candidates) {
     Cursor c{};
     SegmentRecordView rec;
-    while (segment_map[candidate]->nextValidRecord(c, rec)) {
+    auto candidate_ptr = segment_map_monitor.access(candidate);
+    while (candidate_ptr && candidate_ptr->nextValidRecord(c, rec)) {
 
-      if (!isLatestRecord(rec.key.data(), segment_map[candidate]->id,
-                          c.file_offset)) {
+      if (!isLatestRecord(rec.key.data(), candidate_ptr->id, c.file_offset)) {
         result.records_removed += 1;
         continue;
       }
 
-      if (!segment_map[cur_writeable_segment_id]->canAppend(rec.length)) {
-        segment_map[cur_writeable_segment_id]->seal();
-        cur_writeable_segment_id = generateNewSegment();
+      if (!cur_writeable_segment_ptr->canAppend(rec.length)) {
+        cur_writeable_segment_ptr->seal();
+        cur_writeable_segment_ptr =
+            segment_map_monitor.access(generateNewSegment());
       }
 
-      uint32_t file_offset = segment_map[cur_writeable_segment_id]->used;
-      encodeIndexAndSet(rec.key, segment_map[cur_writeable_segment_id]->id,
-                        file_offset);
-      segment_map[cur_writeable_segment_id]->append(rec.key, rec.value);
+      uint32_t file_offset = cur_writeable_segment_ptr->used;
+      encodeIndexAndSet(rec.key, cur_writeable_segment_ptr->id, file_offset);
+      cur_writeable_segment_ptr->append(rec.key, rec.value);
     }
     result.segments_merged += 1;
   }
 
-  if (segment_map[cur_writeable_segment_id]->used > 0) {
-    segment_map[cur_writeable_segment_id]->seal();
+  if (cur_writeable_segment_ptr->used > 0) {
+    cur_writeable_segment_ptr->seal();
   } else {
-    destroySegment(segment_map[cur_writeable_segment_id]);
+    // Fix
+    destroySegment(cur_writeable_segment_ptr);
   }
 
   for (auto &candidate : candidates) {
-    destroySegment(segment_map[candidate]);
+    auto candidate_ptr = segment_map_monitor.access(candidate);
+    destroySegment(candidate_ptr);
   }
 
-  manifest.compactManifest(std::move(candidates), std::move(invalidBytes));
-
-  is_compacting = false;
+  manifest.compactManifest(std::move(candidates), std::move(invalid_bytes));
 
   if (obs) {
     obs->onCompactionComplete(result);
   }
 }
 
+long KV_Store::getSegmentCount() { return segment_id_monitor.size(); }
+
 /**
  * @brief Completely destroy a segment log file and all its in-memory references
  *
  * @param segment The unique pointer to the segment to delete
  */
-void KV_Store::destroySegment(std::unique_ptr<Segment> &segment) {
+void KV_Store::destroySegment(Segment *segment) {
   segment->deleteFile();
-  auto it =
-      std::find(cur_segment_ids.begin(), cur_segment_ids.end(), segment->id);
 
-  if (it != cur_segment_ids.end())
-    cur_segment_ids.erase(it);
-
-  segment_map.erase(segment->id);
+  segment_id_monitor.erase(segment->id);
+  segment_map_monitor.erase(segment->id);
 }
 
 // Attempt to generate hints file on destruction
 KV_Store::~KV_Store() {
+  running.store(false);
+  cv.notify_one();
+  compaction_thread.join();
 
   HintManager hintManager(root_dir);
 
-  std::sort(cur_segment_ids.begin(), cur_segment_ids.end());
+  std::vector<uint32_t> segment_snapshot = segment_id_monitor.get_snapshot();
+  std::sort(segment_snapshot.begin(), segment_snapshot.end());
 
-  for (auto &segment_id : cur_segment_ids) {
-    segment_map[segment_id]->iterateCurrentRecords(
+  for (auto &segment_id : segment_snapshot) {
+    auto segment_ptr = segment_map_monitor.access(segment_id);
+    if (!segment_ptr)
+      continue;
+    segment_ptr->iterateCurrentRecords(
         [&hintManager](const std::string &key, const uint32_t segment_id,
                        const uint32_t file_offset) {
           return hintManager.writeHint(key, segment_id, file_offset);

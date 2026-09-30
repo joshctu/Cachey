@@ -4,11 +4,15 @@
 #include "hint_manager.hpp"
 #include "istore_observer.hpp"
 #include "manifest.hpp"
+#include "seg_id_monitor.hpp"
+#include "seg_map_monitor.hpp"
 #include "segment.hpp"
 #include <atomic>
+#include <condition_variable>
+#include <mutex>
 #include <optional>
 #include <string>
-#include <unordered_map>
+#include <thread>
 
 struct ProjectConfig {
   std::filesystem::path root_dir = DEFAULT_ROOT;
@@ -41,15 +45,23 @@ private:
   Hash_Table hash_table;
   ManifestManager manifest;
   std::atomic<uint32_t> next_segment_id{1};
-  std::vector<uint32_t> cur_segment_ids;
+  // Handle current segment map concurrency
+  SegmentMapMonitor segment_map_monitor;
+  // Handle current segment concurrency
+  SegmentIDMonitor segment_id_monitor;
   // Register an observer to handle store events in other parts of program
   IStoreObserver *obs = nullptr;
   int compaction_threshold;
   std::filesystem::path root_dir;
   uint32_t max_segment_size;
-  bool is_compacting = false;
-  std::unordered_map<uint32_t, std::unique_ptr<Segment>> segment_map;
+  std::mutex manifest_mtx;
   uint32_t active_id;
+  std::condition_variable cv;
+  std::thread compaction_thread;
+  std::atomic<bool> compaction_pending{false};
+  std::atomic<bool> running{true};
+  std::mutex compact_mtx;
+  std::shared_mutex store_mtx;
 
 public:
   KV_Store(ProjectConfig &config);
@@ -62,7 +74,8 @@ private:
   InitResult bootFromHints(HintManager &hintManager);
   uint32_t generateNewSegment();
   void compact();
-  void destroySegment(std::unique_ptr<Segment> &segment);
+  void destroySegment(Segment *segment);
+  void compactionLifecycle();
 
 public:
   InitResult init();

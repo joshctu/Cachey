@@ -14,7 +14,8 @@ find_package(benchmark REQUIRED)
 
 qt_standard_project_setup()
 
-add_library(kv_store_lib src/store.cpp src/segment.cpp src/hash.cpp src/store_controller.cpp src/hint_manager.cpp src/manifest.cpp src/include/store_controller.hpp)
+add_subdirectory(src)
+add_subdirectory(network)
 
 qt_add_executable(kv_store_init src/main.cpp src/gui.cpp src/include/gui.hpp)
 
@@ -23,13 +24,8 @@ set_target_properties(tests PROPERTIES AUTOMOC OFF)
 
 add_executable(benchmarks benchmarks/bench_writes.cpp benchmarks/bench_reads.cpp)
 
-target_link_libraries(kv_store_lib PUBLIC xxHash::xxhash)
-target_link_libraries(kv_store_lib PUBLIC Qt6::Widgets Qt6::Core)
-target_compile_definitions(kv_store_lib PUBLIC DEFAULT_ROOT="${CMAKE_SOURCE_DIR}")
-
-target_include_directories(kv_store_lib PUBLIC ${CMAKE_SOURCE_DIR}/src/include)
-
 target_link_libraries(kv_store_init PRIVATE kv_store_lib)
+target_link_libraries(kv_store_init PRIVATE network_lib)
 target_link_libraries(tests PUBLIC kv_store_lib Catch2::Catch2WithMain)
 target_link_libraries(benchmarks PUBLIC kv_store_lib benchmark::benchmark_main)
 

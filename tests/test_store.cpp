@@ -1,5 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
+#include <chrono>
 #include <store.hpp>
+#include <thread>
 
 ProjectConfig makeConfig() {
   ProjectConfig c;
@@ -89,6 +91,10 @@ TEST_CASE_METHOD(StoreFixture, "Store can correctly perform compaction",
 
     testStore->set(key, new_value);
   }
+
+  // After adding concurrency this line ensures background compaction threads
+  // finish running before we check
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
   REQUIRE(testStore->getSegmentCount() < segment_benchmark * 2);
 

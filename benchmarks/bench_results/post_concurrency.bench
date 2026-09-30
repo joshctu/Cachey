@@ -1,0 +1,155 @@
+{
+  "context": {
+    "date": "2026-09-29T10:15:33-05:00",
+    "host_name": "Lean",
+    "executable": "./benchmarks",
+    "num_cpus": 24,
+    "mhz_per_cpu": 3072,
+    "cpu_scaling_enabled": false,
+    "aslr_enabled": false,
+    "caches": [
+      {
+        "type": "Data",
+        "level": 1,
+        "size": 49152,
+        "num_sharing": 1
+      },
+      {
+        "type": "Instruction",
+        "level": 1,
+        "size": 65536,
+        "num_sharing": 1
+      },
+      {
+        "type": "Unified",
+        "level": 2,
+        "size": 3145728,
+        "num_sharing": 1
+      },
+      {
+        "type": "Unified",
+        "level": 3,
+        "size": 37748736,
+        "num_sharing": 24
+      }
+    ],
+    "load_avg": [0.0322266,0.0883789,0.0600586],
+    "library_version": "v1.9.5",
+    "library_build_type": "release",
+    "json_schema_version": 1
+  },
+  "benchmarks": [
+    {
+      "name": "BM_writeThouroughput_4MB",
+      "family_index": 0,
+      "per_family_instance_index": 0,
+      "run_name": "BM_writeThouroughput_4MB",
+      "run_type": "iteration",
+      "repetitions": 1,
+      "repetition_index": 0,
+      "threads": 1,
+      "iterations": 44,
+      "real_time": 3.9464348749871448e+07,
+      "cpu_time": 1.6813124545454543e+07,
+      "time_unit": "ns"
+    },
+    {
+      "name": "BM_writeThouroughput_50MB",
+      "family_index": 1,
+      "per_family_instance_index": 0,
+      "run_name": "BM_writeThouroughput_50MB",
+      "run_type": "iteration",
+      "repetitions": 1,
+      "repetition_index": 0,
+      "threads": 1,
+      "iterations": 46,
+      "real_time": 2.8684135391655296e+07,
+      "cpu_time": 1.5525518586956520e+07,
+      "time_unit": "ns"
+    },
+    {
+      "name": "BM_writeThouroughput_100MB",
+      "family_index": 2,
+      "per_family_instance_index": 0,
+      "run_name": "BM_writeThouroughput_100MB",
+      "run_type": "iteration",
+      "repetitions": 1,
+      "repetition_index": 0,
+      "threads": 1,
+      "iterations": 46,
+      "real_time": 2.8445698804242294e+07,
+      "cpu_time": 1.5647285652173910e+07,
+      "time_unit": "ns"
+    },
+    {
+      "name": "BM_writeThouroughput_256MB",
+      "family_index": 3,
+      "per_family_instance_index": 0,
+      "run_name": "BM_writeThouroughput_256MB",
+      "run_type": "iteration",
+      "repetitions": 1,
+      "repetition_index": 0,
+      "threads": 1,
+      "iterations": 46,
+      "real_time": 2.7086717130378418e+07,
+      "cpu_time": 1.5438096782608695e+07,
+      "time_unit": "ns"
+    },
+    {
+      "name": "BM_readThouroughput_4MB",
+      "family_index": 4,
+      "per_family_instance_index": 0,
+      "run_name": "BM_readThouroughput_4MB",
+      "run_type": "iteration",
+      "repetitions": 1,
+      "repetition_index": 0,
+      "threads": 1,
+      "iterations": 62,
+      "real_time": 1.1295832790276637e+07,
+      "cpu_time": 1.1291000790322570e+07,
+      "time_unit": "ns"
+    },
+    {
+      "name": "BM_readThouroughput_50MB",
+      "family_index": 5,
+      "per_family_instance_index": 0,
+      "run_name": "BM_readThouroughput_50MB",
+      "run_type": "iteration",
+      "repetitions": 1,
+      "repetition_index": 0,
+      "threads": 1,
+      "iterations": 48,
+      "real_time": 1.4656139124781474e+07,
+      "cpu_time": 1.4652681249999985e+07,
+      "time_unit": "ns"
+    },
+    {
+      "name": "BM_readThouroughput_100MB",
+      "family_index": 6,
+      "per_family_instance_index": 0,
+      "run_name": "BM_readThouroughput_100MB",
+      "run_type": "iteration",
+      "repetitions": 1,
+      "repetition_index": 0,
+      "threads": 1,
+      "iterations": 47,
+      "real_time": 1.4741152233909816e+07,
+      "cpu_time": 1.4732298063829785e+07,
+      "time_unit": "ns"
+    },
+    {
+      "name": "BM_readThouroughput_256MB",
+      "family_index": 7,
+      "per_family_instance_index": 0,
+      "run_name": "BM_readThouroughput_256MB",
+      "run_type": "iteration",
+      "repetitions": 1,
+      "repetition_index": 0,
+      "threads": 1,
+      "iterations": 47,
+      "real_time": 1.4967576744272672e+07,
+      "cpu_time": 1.4955979957446806e+07,
+      "time_unit": "ns"
+    }
+  ]
+}

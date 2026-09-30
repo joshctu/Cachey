@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <shared_mutex>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -18,6 +19,7 @@ struct ManifestEvent {
 class ManifestManager {
 private:
   std::filesystem::path root_dir;
+  std::shared_mutex manifest_mtx;
   std::fstream manifest_file;
   uint32_t used = 0;
 

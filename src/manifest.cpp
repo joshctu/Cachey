@@ -1,5 +1,7 @@
 #include "manifest.hpp"
 #include <filesystem>
+#include <iostream>
+#include <mutex>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -22,6 +24,7 @@ void ManifestManager::writeInvalidateBytesEvent(const uint32_t segment_id,
                                                 const uint32_t dead_bytes) {
 
   const uint8_t operation_type = 0x1;
+  std::unique_lock<std::shared_mutex> manifest_lock(manifest_mtx);
   manifest_file.write(reinterpret_cast<const char *>(&operation_type),
                       sizeof(operation_type));
   manifest_file.write(reinterpret_cast<const char *>(&segment_id),
@@ -38,6 +41,7 @@ ManifestManager::getInvalidBytesTotals() {
 
   std::streamoff offset = 0;
 
+  std::shared_lock<std::shared_mutex> manifest_lock(manifest_mtx);
   while (offset < used) {
     uint8_t operation;
     uint32_t segment_id;
@@ -70,7 +74,7 @@ void ManifestManager::compactManifest(
   // beginning of this process to write to. At the successful conclusion of the
   // process we delete the old file and set the new file reference to the class
   // member. We may need to do a file rename as well.
-  //
+  std::unique_lock<std::shared_mutex> manifest_lock(manifest_mtx);
   std::ofstream manifest_swp_file(root_dir / "database" / "manifest" /
                                       "manifest_swp.txt",
                                   std::ios::app | std::ios::binary);
@@ -107,4 +111,9 @@ void ManifestManager::compactManifest(
   std::filesystem::rename(root_dir / "database" / "manifest" /
                               "manifest_swp.txt",
                           root_dir / "database" / "manifest" / "manifest.txt");
+  manifest_file.close();
+  manifest_file.open(root_dir / "database" / "manifest" / "manifest.txt",
+                     std::ios::in | std::ios::out | std::ios::app |
+                         std::ios::binary);
+  used = manifest_file.seekg(0, std::ios::end).tellg();
 }

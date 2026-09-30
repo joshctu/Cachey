@@ -5,6 +5,7 @@
 #include <fstream>
 #include <functional>
 #include <optional>
+#include <shared_mutex>
 
 constexpr uint32_t MAX_SEGMENT_SIZE = 256;
 constexpr uint32_t SERIALIZED_HEADER_SIZE = 17;
@@ -78,6 +79,9 @@ public:
   bool isSealed = false;
   std::filesystem::path file_path;
   std::fstream segment_file;
+
+private:
+  std::shared_mutex active_seg_mtx;
 
 public:
   Segment(uint32_t id, uint32_t size, std::filesystem::path file_path);

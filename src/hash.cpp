@@ -17,17 +17,10 @@ uint64_t Hash_Table::generateHash(const std::string &key) {
  */
 void Hash_Table::createIndex(const std::string &key, const uint64_t offset) {
   uint64_t key_hash = generateHash(key);
+
+  // std::unique_lock<std::shared_mutex> hash_lock(hash_mtx);
   lookup_table[key_hash] = offset;
 };
-
-/**
- * @brief Update an entry in the index map to point to a new entry
- *
- * @param hash The hash for the existing entry to be modified
- */
-void Hash_Table::updateIndex(const uint64_t hash, const uint64_t offset) {
-  lookup_table[hash] = offset;
-}
 
 /**
  * @brief Checks for and returns the byte offset | log # for a given key;
@@ -39,6 +32,7 @@ void Hash_Table::updateIndex(const uint64_t hash, const uint64_t offset) {
  */
 std::optional<uint64_t> Hash_Table::lookupHash(const std::string &key) {
   uint64_t key_hash = generateHash(key);
+  // std::shared_lock<std::shared_mutex> hash_lock(hash_mtx);
   if (lookup_table.contains(key_hash))
     return lookup_table[key_hash];
 
