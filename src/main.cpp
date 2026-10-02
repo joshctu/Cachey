@@ -17,8 +17,8 @@ int main(int argc, char *argv[]) {
   TCPServer server(8080);
   std::thread server_thread(&TCPServer::init, &server);
 
-  TCPClient client(8080);
-  std::thread client_thread(&TCPClient::init, &client);
+  // TCPClient client(8080);
+  // std::thread client_thread(&TCPClient::init, &client);
 
   QApplication app(argc, argv);
 

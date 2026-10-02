@@ -20,7 +20,8 @@ int TCPClient::init() {
     return 1;
   }
 
-  if (connect(client_fd, (sockaddr *)&server, sizeof(server)) < 0) {
+  if (connect(client_fd, reinterpret_cast<sockaddr *>(&server),
+              sizeof(server)) < 0) {
     perror("connect");
     close(client_fd);
     return 1;

@@ -1,0 +1,19 @@
+[project]
+name = "python-client"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Lean", email = "jctuttle42@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "isort>=9.0.2",
+]
+
+[project.scripts]
+python-client = "python_client:main"
+
+[build-system]
+requires = ["uv_build>=0.12.20,<0.13.0"]
+build-backend = "uv_build"
