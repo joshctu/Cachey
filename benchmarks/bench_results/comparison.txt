@@ -1,0 +1,12 @@
+Comparing /home/lean/cpp/kv_store/benchmarks/bench_results/pre_concurrency.bench to /home/lean/cpp/kv_store/benchmarks/bench_results/post_concurrency.bench
+Benchmark                                    Time             CPU      Time Old      Time New       CPU Old       CPU New
+-------------------------------------------------------------------------------------------------------------------------
+[92mBM_writeThouroughput_4MB         [0m[96m         -0.9656[0m[96m         -0.9853[0m    1147101169      39464349[0m    1145752527      16813125
+[92mBM_writeThouroughput_50MB        [0m[96m         -0.7092[0m[96m         -0.8450[0m      98653292      28684135[0m     100151744      15525519
+[92mBM_writeThouroughput_100MB       [0m[96m         -0.4436[0m[96m         -0.6971[0m      51123966      28445699[0m      51665853      15647286
+[92mBM_writeThouroughput_256MB       [0m[96m         -0.7382[0m[96m         -0.8515[0m     103465863      27086717[0m     103982153      15438097
+[92mBM_readThouroughput_4MB          [0m[91m         +0.1632[0m[91m         +0.1632[0m       9711139      11295833[0m       9707156      11291001
+[92mBM_readThouroughput_50MB         [0m[91m         +0.1321[0m[91m         +0.1335[0m      12945961      14656139[0m      12926562      14652681
+[92mBM_readThouroughput_100MB        [0m[91m         +0.1195[0m[91m         +0.1216[0m      13167064      14741152[0m      13135260      14732298
+[92mBM_readThouroughput_256MB        [0m[91m         +0.1181[0m[91m         +0.1209[0m      13386478      14967577[0m      13343208      14955980
+[92mOVERALL_GEOMEAN                  [0m[96m         -0.5295[0m[96m         -0.6622[0m             0             0[0m             0             0

@@ -1,5 +1,9 @@
 #pragma once
 
+#ifndef DEFAULT_ROOT
+#define DEFAULT_ROOT "."
+#endif
+
 #include "hash.hpp"
 #include "hint_manager.hpp"
 #include "istore_observer.hpp"

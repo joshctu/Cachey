@@ -462,7 +462,6 @@ void KV_Store::compact() {
   if (cur_writeable_segment_ptr->used > 0) {
     cur_writeable_segment_ptr->seal();
   } else {
-    // Fix
     destroySegment(cur_writeable_segment_ptr);
   }
 

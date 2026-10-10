@@ -1,7 +1,7 @@
 #pragma once
 
+#include "store_controller.hpp"
 #include <netinet/in.h>
-#include <string>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -11,10 +11,11 @@ private:
   int server_fd;
   uint16_t port;
   sockaddr_in6 address{};
+  StoreController *store_controller;
 
 public:
-  TCPServer(uint16_t port);
+  TCPServer(uint16_t port, StoreController *store_controller);
   int init();
-  bool sendToClient(int client_fd, const char *msg);
+  bool sendToClient(const int client_fd, const char *msg);
   int configureSocket();
 };

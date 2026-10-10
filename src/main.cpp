@@ -1,7 +1,6 @@
-#include "TCPClient.hpp"
-#include "TCPServer.hpp"
 #include "gui.hpp"
 #include "store.hpp"
+#include "tcp_server.hpp"
 #include <QApplication>
 #include <QtGlobal>
 #include <exceptions.hpp>
@@ -14,12 +13,6 @@
  */
 int main(int argc, char *argv[]) {
 
-  TCPServer server(8080);
-  std::thread server_thread(&TCPServer::init, &server);
-
-  // TCPClient client(8080);
-  // std::thread client_thread(&TCPClient::init, &client);
-
   QApplication app(argc, argv);
 
   ProjectConfig config;
@@ -27,6 +20,9 @@ int main(int argc, char *argv[]) {
   KV_Store store(config);
   StoreController storeController(&store);
   MainWindow mainWindow(&storeController);
+
+  TCPServer server(8080, &storeController);
+  std::thread server_thread(&TCPServer::init, &server);
 
   mainWindow.show();
 

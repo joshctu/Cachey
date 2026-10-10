@@ -22,8 +22,8 @@ void StoreController::onCompactionComplete(CompactionResult &result) {
   emit signalCompactionComplete(result.segments_merged, result.records_removed);
 };
 
-SetResult StoreController::handleSetKeyValue(std::string &key,
-                                             std::string &value) {
+SetResult StoreController::handleSetKeyValue(const std::string &key,
+                                             const std::string &value) {
 
   if (key.size() == 0)
     return {false, "A key must be provided."};
@@ -42,7 +42,7 @@ SetResult StoreController::handleSetKeyValue(std::string &key,
   return {true, "", time, res.unique_write_completed};
 }
 
-GetResult StoreController::handleGetValue(std::string &key) {
+GetResult StoreController::handleGetValue(const std::string &key) {
 
   if (key.size() == 0)
     return {false, "A key must be provided"};
@@ -66,7 +66,7 @@ GetResult StoreController::handleGetValue(std::string &key) {
   return {false, "Key not found"};
 }
 
-DeleteResult StoreController::handleDeleteKey(std::string &key) {
+DeleteResult StoreController::handleDeleteKey(const std::string &key) {
   if (key.size() == 0)
     return {false, "A key must be provided"};
 

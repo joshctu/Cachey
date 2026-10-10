@@ -15,17 +15,16 @@ find_package(benchmark REQUIRED)
 qt_standard_project_setup()
 
 add_subdirectory(src)
-add_subdirectory(network)
 
 qt_add_executable(kv_store_init src/main.cpp src/gui.cpp src/include/gui.hpp)
 
 add_executable(tests tests/test_store.cpp)
 set_target_properties(tests PROPERTIES AUTOMOC OFF)
 
-add_executable(benchmarks benchmarks/bench_writes.cpp benchmarks/bench_reads.cpp)
+add_executable(benchmarks benchmarks/bench_writes.cpp
+benchmarks/bench_reads.cpp)
 
 target_link_libraries(kv_store_init PRIVATE kv_store_lib)
-target_link_libraries(kv_store_init PRIVATE network_lib)
 target_link_libraries(tests PUBLIC kv_store_lib Catch2::Catch2WithMain)
 target_link_libraries(benchmarks PUBLIC kv_store_lib benchmark::benchmark_main)
 

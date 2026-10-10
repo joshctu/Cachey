@@ -47,10 +47,10 @@ public:
   StoreController(KV_Store *store);
 
   InitResult handleStoreInit();
-  SetResult handleSetKeyValue(std::string &key, std::string &value);
-  GetResult handleGetValue(std::string &key);
-  DeleteResult handleDeleteKey(std::string &key);
-  BulkSetResult handleSeedEntries(int number_of_entries);
+  SetResult handleSetKeyValue(const std::string &key, const std::string &value);
+  GetResult handleGetValue(const std::string &key);
+  DeleteResult handleDeleteKey(const std::string &key);
+  BulkSetResult handleSeedEntries(const int number_of_entries);
   void onCompactionComplete(CompactionResult &result) override;
 
   ~StoreController();

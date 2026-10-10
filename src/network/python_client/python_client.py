@@ -1,6 +1,5 @@
 import socket
 import struct
-import sys
 
 
 # client api spec
@@ -8,19 +7,18 @@ import sys
 #
 # {
 #   uint8_t operation (0x10 -> GET, 0x20 -> SET, 0x30 -> DELETE)
-#   uint32_t key_size
 #   key
-#   uint32_t value_size
 #   value
 #
 # }
 #
 def parseServerResponse(response: str) -> str:
     command_list = response.split("/")
+    print("command list", command_list)
 
     command = ""
-    key = command_list[2]
-    value = command_list[4] if len(command_list) > 4 else "N/A"
+    key = command_list[1]
+    value = command_list[2] if len(command_list) > 2 else "N/A"
 
     match hex(int(command_list[0])):
         case "0x10":
@@ -32,14 +30,7 @@ def parseServerResponse(response: str) -> str:
         case _:
             print("Invalid operation type recieved from server")
 
-    res = (
-        "From the client: Server has confirmed you attempted to "
-        + command
-        + " key with value: "
-        + key
-        + " Value if supplied: "
-        + value
-    )
+    res = "Server has confirmed you\n" + command + "\nkey: " + key + "\nvalue: " + value
 
     return res
 
@@ -50,13 +41,13 @@ def socket_init():
 
     s = None
 
-    try:
-        s = socket.socket(socket.AF_INET6, socket.SOCK_STREAM, 0)
-    except OSError as msg:
-        print(msg)
-        return
-
     while True:
+        try:
+            s = socket.socket(socket.AF_INET6, socket.SOCK_STREAM, 0)
+        except OSError as msg:
+            print("Socket creation failed", msg)
+            return
+
         user_input_str = input(
             "Command should be operation followed by key and/or value: "
         )
@@ -112,10 +103,10 @@ def socket_init():
 
         try:
             s.connect((HOST, PORT))
-        except OSError:
-            print("Connection error")
+        except OSError as msg:
+            print("Socket connection failed", msg)
             s.close()
-            break
+            return
 
         # transmit message
         with s:
@@ -125,7 +116,7 @@ def socket_init():
 
             data = s.recv(1025)
             print(parseServerResponse(data.decode("utf-8")))
-            return
+            continue
 
 
 if __name__ == "__main__":

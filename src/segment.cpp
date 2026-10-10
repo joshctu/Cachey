@@ -372,7 +372,6 @@ void Segment::append(const std::string &key, const std::string &value) {
  */
 std::optional<const std::string> Segment::read(const std::string &key,
                                                uint32_t const offset) {
-  // std::shared_lock<std::shared_mutex> seg_lock(active_seg_mtx);
 
   if (!segment_file)
     return std::nullopt;
@@ -419,7 +418,6 @@ void Segment::remove(const std::string &key) {
                            SERIALIZED_HEADER_SIZE + key.size();
   header.checksum = generateRecordChecksum(key, "", 0x30);
 
-  // std::unique_lock<std::shared_mutex> seg_lock(active_seg_mtx);
   writeTo(used);
   segment_file.write(reinterpret_cast<char *>(&record_length),
                      sizeof(record_length));
@@ -453,7 +451,6 @@ void Segment::remove(const std::string &key) {
 void Segment::seal() {
   std::streamoff offset = static_cast<std::streamoff>(size) -
                           static_cast<std::streamoff>(SERIALIZED_FOOTER_SIZE);
-  //  std::unique_lock<std::shared_mutex> seg_lock(active_seg_mtx);
   writeTo(offset);
   segment_file.write(reinterpret_cast<const char *>(&MAGIC), sizeof(MAGIC));
   segment_file.write(reinterpret_cast<char *>(&used), sizeof(used));
